@@ -56,17 +56,6 @@ PROGRAM MAIN
 
         if (mod(int(TIME/DT),10) == 0) then
             call progress_bar(TIME/T_MAX)
-            ! DEBUGGING ------------------------------
-            !Tmin = 0
-            !do j = 1,NX
-               !do k = 1,NZ
-                  !Tmin = min(Tmin,THETA(j,k)*EXNER(PR_E(k))-273.15)
-               !end do
-            !end do
-            !print*, 'Minimum Temperature =', Tmin
-            !print*, 'Maximum Freezing T  =', maxval(T_Freeze)-273.15
-            !print*, 'Maximum Saturation  =', maxval(SAT)
-            ! END OF DEBUGGING CODE ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
         end if
         TIME = TIME + DT
     END DO

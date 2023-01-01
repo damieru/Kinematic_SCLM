@@ -64,13 +64,13 @@ program write_input
 
 
     contains
-        function GET_FILE_NAME(Delta,I) result(file_name)
-            real*8, intent(in) :: Delta, I
+        function GET_FILE_NAME(DD,II) result(file_name)
+            real*8, intent(in) :: DD, II
             character(len=50) :: file_name
-            if (Delta < 10) then
-                write(file_name,'(A,F3.1,A,F5.3,A)') 'ice_D',Delta,'_i',I,'.in'
+            if (DD < 10) then
+                write(file_name,'(A,F3.1,A,F5.3,A)') 'ice_D',DD,'_i',II,'.in'
             else
-                write(file_name,'(A,F4.1,A,F5.3,A)') 'ice_D',Delta,'_i',I,'.in'
+                write(file_name,'(A,F4.1,A,F5.3,A)') 'ice_D',DD,'_i',II,'.in'
             end if
         end function  
 end program 

@@ -8,10 +8,10 @@
 
 # == Runs Superdroplet Kinematic model ==
 #cd ../../sd_models/kinematic\ SD\ ice/
-./compile
-export OMP_NUM_THREADS=8;
+./compile.sh
+export OMP_NUM_THREADS=20;
 #./ksdh5 < ice_D0.0_i0.010.in
-./ksdh5 < ice_D0.0_i0.050.in
-./ksdh5 < ice_D0.0_i0.100.in
-#./ksdh5 < input.in
+#./ksdh5 < ice_D0.0_i0.050.in
+#./ksdh5 < ice_D0.0_i0.100.in
+./ksdh5 < Input/input.in
 

@@ -8,14 +8,10 @@ PROGRAM MAIN
     use BOX
     use FUNCTIONS, only: progress_bar, exner
     use OMP_LIB
-    ! DEBUGGING
-    use GRID, only: NX, NZ
-    use ENVIRONMENT, only: PR_E
-    ! ^^^^^^^^^^^^^^^^^^^^^
+
     IMPLICIT NONE
 
-    INTEGER*8 :: I, j, k
-    REAL*8    :: Tmin
+    INTEGER*8 :: I
 
     !Initialization -----------------------------------------------------
     CALL PRINT_REMARKS
@@ -25,12 +21,12 @@ PROGRAM MAIN
     CALL INIT_RANDOM_SEED                    !For the (random) prescribed fluid flow
     CALL INIT_SD
     CALL UPDATE_BOXES
-    CALL DROPS_PER_BOX
+    CALL UPDATE_PARTICLE_BOX_MAP
     CALL SAT_FIELD
 
     TIME = 0.D0
-    T_MAX = 120!4*3600 !Maximum simulation time in seconds
-    OUT_PER = 1.D0 !Output period in minutes
+    T_MAX = 60 !Maximum simulation time in seconds
+    OUT_PER = 1.D0/60 !Output period in minutes
     N_STEPS = NINT(T_MAX/DT) + 1
 
     CALL GET_VELOCITIES
@@ -47,7 +43,7 @@ PROGRAM MAIN
             END IF
         END IF
         CALL ADVECTION_SD
-        CALL DROPS_PER_BOX
+        CALL UPDATE_PARTICLE_BOX_MAP
         CALL GROW_DROPLETS      ! Solve growth equations
         CALL UPDATE_BOXES       ! Update grid boxes mean properties after condensation
         CALL SAT_FIELD          ! Diagnostic only
@@ -60,10 +56,6 @@ PROGRAM MAIN
         TIME = TIME + DT
     END DO
 END PROGRAM MAIN
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
 
 SUBROUTINE PRINT_REMARKS
 
@@ -84,85 +76,60 @@ SUBROUTINE PRINT_REMARKS
 
 END SUBROUTINE PRINT_REMARKS
 
-!****************************************************************
-!****************************************************************
-!****************************************************************
-
 SUBROUTINE READIN
 
-  use GRID
-  use PERIOD3D
-  use VELOCITY_MODES, ONLY: MK,NK,LLX,LLZ,DZ_INV_W
-  use SD_VARIABLES,   ONLY: im_freezing, init_ice_frac
-  use ADVECTION
-  use STEPPER
-  use ENVIRONMENT, ONLY: Z_INV
-  use OUTPUT
-  use SD_VARIABLES, only: NPB
+   use GRID
+   use PERIOD3D
+   use VELOCITY_MODES, ONLY: MK,NK,LLX,LLZ,DZ_INV_W
+   use SD_VARIABLES,   ONLY: im_freezing, init_ice_frac
+   use ADVECTION
+   use STEPPER
+   use ENVIRONMENT, ONLY: Z_INV
+   use IO_PARAMETERS
+   use SD_VARIABLES, only: DPB_input
 
-  IMPLICIT NONE
+   IMPLICIT NONE   
 
-  ! GRID ------------------------------------------------------------------------
+   character(len=100) :: file_line
 
-  READ(*,*)
-  READ(*,*)
-  READ(*,*) NX, NZ
-  READ(*,*) DX, DY, DZ
-  READ(*,*)
+   ! GRID ------------------------------------------------------------------------
+   file_line = get_line(); READ(file_line,*) NX, NZ
+   file_line = get_line(); READ(file_line,*) DX, DZ
 
-  NXP = NX + 1
-  NZP = NZ + 1
+   NXP = NX + 1
+   NZP = NZ + 1
 
-  !Period 3-D
+   !Period 3-D
+   LX = DX*NX
+   LZ = DZ*NZ
 
-  LX = DX*NX
-  LY = DY
-  LZ = DZ*NZ
+   ! VELOCITY MODES --------------------------------------------------------------
+   file_line = get_line(); READ(file_line,*) MK, NK
+   file_line = get_line(); READ(file_line,*) FLAG_TRANSIENT_FLOW
 
-  ! VELOCITY MODES --------------------------------------------------------------
+   LLX = LX
+   LLZ = 2.D0*LZ
 
-  READ(*,*)
-  READ(*,*)
-  READ(*,*) MK, NK
-  READ(*,*) FLAG_TRANSIENT_FLOW
-  READ(*,*)
+   WRITE(*,'(/A,F6.2)') "Turbulence resolution length scale: ", SQRT( LLX*LLZ/REAL(MK*NK) )
 
-  LLX = LX
-  LLZ = 2.D0*LZ
+   ! STEPPER ---------------------------------------------------------------------
+   file_line = get_line(); READ(file_line,*) DT
+   file_line = get_line(); READ(file_line,*) DT_ADV
 
-  WRITE(*,*)
-  WRITE(*,*) "Turbulence resolution length scale: ", SQRT( LLX*LLZ/REAL(MK*NK) )
-  WRITE(*,*)
+   ! INVERSION -------------------------------------------------------------------
+   file_line = get_line(); READ(file_line,*) Z_INV    !Thermodynamic initial inversion
+   file_line = get_line(); READ(file_line,*) DZ_INV_W  !Velocity profile overshoot
 
-  ! STEPPER ---------------------------------------------------------------------
+   ! OUTPUT PARAMETERS -----------------------------------------------------------
+   file_line = get_line(); READ(file_line,*) output_folder
+   file_line = get_line(); READ(file_line,*) output_file
 
-  READ(*,*)
-  READ(*,*)
-  READ(*,*) DT
-  READ(*,*) DT_ADV
-  READ(*,*)
+   ! Number of super droplets per box
+   file_line = get_line(); READ(file_line,*) DPB_input
 
-  ! INVERSION -------------------------------------------------------------------
-
-  READ(*,*)
-  READ(*,*)
-  READ(*,*)  Z_INV    !Thermodynamic initial inversion
-  READ(*,*) DZ_INV_W  !Velocity profile overshoot
-  READ(*,*)
-
-  ! OUTPUT PARAMETERS -----------------------------------------------------------
-
-  READ(*,'(//A)') FILE_PLACE
-  READ(*,'(A)'  ) FILE_NAME
-  READ(*,*)
-
-  ! Number of super droplets per box
-
-  read(*,'(//I3)') NPB
-  !Eddy size and TKE dissipation rate--------------------------------------------
-
-   read(*,'(///F6.2)') L
-   read(*,'(F6.2)'   ) eps
+   !Eddy size and TKE dissipation rate--------------------------------------------
+   file_line = get_line(); READ(file_line,*) L
+   file_line = get_line(); READ(file_line,*) eps
 
    ! Uses the deterministic model if either L or eps = 0
    if (eps*L == 0.D0) then
@@ -171,21 +138,38 @@ SUBROUTINE READIN
    end if
 
    ! Immersion freezing ON / OFF
-   read(*,'(///L)') im_freezing
-   ! Initial ice fraction
-   read(*,'(///F6.2)') init_ice_frac
-   ! Path to velocities file
-   read(*,'(///A)') velocities_file
+   file_line = get_line(); READ(file_line,*) im_freezing
 
-  WRITE(*,*)
-  WRITE(*,*) "NUMBER OF GRID BOXES: ", NX*NZ
-  WRITE(*,*)
+   ! Initial ice fraction
+   file_line = get_line(); READ(file_line,*) init_ice_frac
+
+   ! Path to velocities file
+   file_line = get_line(); READ(file_line,*) field
+   file_line = get_line(); READ(file_line,*) input_file
+
+   WRITE(*,'(/A,I6.3)') "NUMBER OF GRID BOXES: ", NX*NZ
+
+   contains
+
+   function get_line() result(line)
+      ! Returns only the lines that don't start with '#'
+      ! and are not empty. Ignores text after ":".
+      character(len=100) :: probe, line
+      integer :: error, i
+      read(*,'(A)',iostat=error) probe
+
+      do while ((probe(1:1) == '#' .or. len_trim(probe) == 0) .and. error == 0) 
+         read(*,'(A)',iostat=error) probe 
+      end do   
+
+      do i = 1,len_trim(probe)
+         if (probe(i:i)==':') exit
+      end do
+
+      line = trim(probe(1:i-1))
+   end function get_line
 
 END SUBROUTINE READIN
-
-!****************************************************************
-!****************************************************************
-!****************************************************************
 
 SUBROUTINE GET_STREAM_FUNCTION
 
@@ -221,10 +205,6 @@ SUBROUTINE GET_STREAM_FUNCTION
   END DO
 
 END SUBROUTINE GET_STREAM_FUNCTION
-
-!****************************************************************
-!****************************************************************
-!****************************************************************
 
 SUBROUTINE INIT_THERMODYNAMIC_VAR_SD
 
@@ -289,10 +269,6 @@ SUBROUTINE INIT_THERMODYNAMIC_VAR_SD
 
 END SUBROUTINE INIT_THERMODYNAMIC_VAR_SD
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 SUBROUTINE INIT_RANDOM_SEED
 
   IMPLICIT NONE
@@ -313,9 +289,87 @@ SUBROUTINE INIT_RANDOM_SEED
 
 END SUBROUTINE INIT_RANDOM_SEED
 
-!****************************************************************
-!****************************************************************
-!****************************************************************
+SUBROUTINE HDF5_CREATE_FILE
+
+   use HDF5_VARIABLES
+   use GRID
+   use STEPPER, ONLY: T_MAX, OUT_PER
+   use SD_VARIABLES, only: N_sd
+   use IO_PARAMETERS
+   
+   integer*8 :: NT
+   character(100) :: file_path
+   logical :: f_exists
+
+   inquire(file=output_folder, exist=f_exists)
+   if (.NOT.f_exists) then 
+       call system('mkdir '//output_folder)
+   end if
+
+   file_path = trim(output_folder)//'/'//trim(output_file)
+
+   !inquire(file=file_path, exist=f_exists)
+   !do while (f_exists)
+   !    write(f_index,'(i2.2)') i
+   !    file_path = trim(output_folder)//'/'//'('//trim(f_index)//')'//trim(output_file)
+   !    inquire(file=file_path, exist=f_exists)
+   !end do
+
+   NT = int(NINT(T_MAX)/(60*OUT_PER) + 1,8) ! Number of saved instants
+   call h5open_f(error) !Opens HDF5 Fortran interface
+   call h5fcreate_f(file_path, H5F_ACC_TRUNC_F, file_id, error) !Creates file
+
+   call h5screate_simple_f(1, (/NZ/), dspace_id, error) !Creates dataspace
+   !Creating RHO dataset
+   call h5dcreate_f(file_id, 'RHO', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+
+   call h5screate_simple_f(rnk, (/NX,NZ,NT/), dspace_id, error) !Creates dataspace
+   !Creating THETA dataset
+   call h5dcreate_f(file_id, 'THETA', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+   !Creating RV dataspace and dataset
+   call h5dcreate_f(file_id, 'RV', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+   !Creating RL dataspace and dataset
+   call h5dcreate_f(file_id, 'RL', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+   !Creating RI dataspace and dataset
+   call h5dcreate_f(file_id, 'RI', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+   !Creating UX dataspace and dataset
+   call h5dcreate_f(file_id, 'UX', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+   !Creating UZ dataspace and dataset
+   call h5dcreate_f(file_id, 'UZ', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+   !Creating DPB dataspace and dataset
+   call h5dcreate_f(file_id, 'DPB', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+   !Creating SAT dataspace and dataset
+   call h5dcreate_f(file_id, 'SAT', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+
+   call h5screate_simple_f(rnk, (/int(N_sd,8),int(2,8),NT/), dspace_id, error) !Creates dataspace
+   !Creating X_SD dataspace and dataset
+   call h5dcreate_f(file_id, 'X_SD', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+
+   call h5screate_simple_f(2, (/int(N_sd,8),NT/), dspace_id, error) !Creates dataspace
+   !Creating X_SD dataspace and dataset
+   call h5dcreate_f(file_id, 'R_SD', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+
+   call h5screate_simple_f(1, (/NT/), dspace_id, error) !Creates dataspace
+   !Creating X_SD dataspace and dataset
+   call h5dcreate_f(file_id, 'TIME', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dclose_f(dset_id,error)
+
+   !Closing file and interface
+   call h5fclose_f(file_id,error)
+   call h5close_f(error)
+
+END SUBROUTINE HDF5_CREATE_FILE
 
 SUBROUTINE HDF5_SAVE_RESULTS (NMIN)
 
@@ -327,14 +381,14 @@ SUBROUTINE HDF5_SAVE_RESULTS (NMIN)
     use ENVIRONMENT, ONLY: RHO
     use GRID
     use SD_VARIABLES, ONLY: N_sd, X, R
-    use OUTPUT
+    use IO_PARAMETERS
     IMPLICIT NONE
 
     REAL*8  :: NMIN
     INTEGER :: IT,FREQ
     CHARACTER(100) :: FILE_PATH
 
-    FILE_PATH = TRIM(FILE_PLACE)//'/'//TRIM(FILE_NAME)
+    FILE_PATH = TRIM(output_folder)//'/'//TRIM(output_file)
 
     IT = NINT( TIME/DT )
     FREQ = NINT( NMIN * 60.D0/DT )
@@ -492,9 +546,6 @@ SUBROUTINE HDF5_SAVE_RESULTS (NMIN)
     END IF
 END SUBROUTINE HDF5_SAVE_RESULTS
 
-!****************************************************************
-!****************************************************************
-!****************************************************************
 SUBROUTINE HDF5_READ_VELOCITIES(filename)
     use HDF5_VARIABLES
     use STEPPER
@@ -555,93 +606,49 @@ SUBROUTINE HDF5_READ_VELOCITIES(filename)
     call h5fclose_f(file_id, error)
     call h5close_f(error)
 END SUBROUTINE HDF5_READ_VELOCITIES
-!****************************************************************
-!****************************************************************
-!****************************************************************
-SUBROUTINE HDF5_CREATE_FILE
 
-    use HDF5_VARIABLES
-    use GRID
-    use STEPPER, ONLY: T_MAX, OUT_PER
-    use SD_VARIABLES, only: N_sd
-    use OUTPUT
-    
-    integer*8 :: NT
-    character(100) :: file_path
-    logical :: f_exists
+SUBROUTINE HDF5_READ_PSI(filename)
+   use HDF5_VARIABLES
+   use STEPPER
+   use GRID
+   use ADVECTION, ONLY: PSI
 
-    inquire(file=FILE_PLACE, exist=f_exists)
-    if (.NOT.f_exists) then 
-        call system('mkdir '//FILE_PLACE)
-    end if
+   implicit NONE
 
-    file_path = trim(FILE_PLACE)//'/'//trim(FILE_NAME)
+   character(100), intent(in) :: filename
 
-    !inquire(file=file_path, exist=f_exists)
-    !do while (f_exists)
-    !    write(f_index,'(i2.2)') i
-    !    file_path = trim(FILE_PLACE)//'/'//'('//trim(f_index)//')'//trim(FILE_NAME)
-    !    inquire(file=file_path, exist=f_exists)
-    !end do
+   offset = (/0,0,NINT(TIME/DT_ADV)/)
 
-    NT = int(NINT(T_MAX)/(60*OUT_PER) + 1,8) ! Number of saved instants
-    call h5open_f(error) !Opens HDF5 Fortran interface
-    call h5fcreate_f(file_path, H5F_ACC_TRUNC_F, file_id, error) !Creates file
+   call h5open_f(error) !Open fortran HDF5 interface
+   call h5fopen_f(filename,H5F_ACC_RDWR_F,file_id,error) !Open file
+   if (error /= 0) then
+       call system('clear')
+       print*, 'PSI file not found.'
+       stop
+   end if
+   !Open PSI dataset
+   call h5dopen_f(file_id, 'PSI', dset_id, error)
+   !Get dataspace info
+   call h5dget_space_f(dset_id, dspace_id, error)
+   !Select subset
+   count = (/NXP,NZP,int(1,8)/)
+   dimsm = count
+   call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
+   !Create memory data space
+   call h5screate_simple_f(rnk, dimsm, memspace, error)
+   !Read subset from dataset
+   call h5dread_f(dset_id, H5T_NATIVE_DOUBLE, PSI, dimsm, error, memspace, dspace_id)
+   !Close dataset
+   call h5dclose_f(dset_id, error)
+   !Close dataspace
+   call h5sclose_f(dspace_id, error)
+   !Close memory dataspace
+   call h5sclose_f(memspace , error)
 
-    call h5screate_simple_f(1, (/NZ/), dspace_id, error) !Creates dataspace
-    !Creating RHO dataset
-    call h5dcreate_f(file_id, 'RHO', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-
-    call h5screate_simple_f(rnk, (/NX,NZ,NT/), dspace_id, error) !Creates dataspace
-    !Creating THETA dataset
-    call h5dcreate_f(file_id, 'THETA', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-    !Creating RV dataspace and dataset
-    call h5dcreate_f(file_id, 'RV', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-    !Creating RL dataspace and dataset
-    call h5dcreate_f(file_id, 'RL', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-    !Creating RI dataspace and dataset
-    call h5dcreate_f(file_id, 'RI', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-    !Creating UX dataspace and dataset
-    call h5dcreate_f(file_id, 'UX', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-    !Creating UZ dataspace and dataset
-    call h5dcreate_f(file_id, 'UZ', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-    !Creating DPB dataspace and dataset
-    call h5dcreate_f(file_id, 'DPB', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-    !Creating SAT dataspace and dataset
-    call h5dcreate_f(file_id, 'SAT', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-
-    call h5screate_simple_f(rnk, (/int(N_sd,8),int(2,8),NT/), dspace_id, error) !Creates dataspace
-    !Creating X_SD dataspace and dataset
-    call h5dcreate_f(file_id, 'X_SD', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-
-    call h5screate_simple_f(2, (/int(N_sd,8),NT/), dspace_id, error) !Creates dataspace
-    !Creating X_SD dataspace and dataset
-    call h5dcreate_f(file_id, 'R_SD', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-
-    call h5screate_simple_f(1, (/NT/), dspace_id, error) !Creates dataspace
-    !Creating X_SD dataspace and dataset
-    call h5dcreate_f(file_id, 'TIME', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
-    call h5dclose_f(dset_id,error)
-
-    !Closing file and interface
-    call h5fclose_f(file_id,error)
-    call h5close_f(error)
-
-END SUBROUTINE HDF5_CREATE_FILE
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
+   !Close file and interface
+   call h5fclose_f(file_id, error)
+   call h5close_f(error)
+END SUBROUTINE HDF5_READ_PSI
 
 SUBROUTINE INIT_VELOCITY_MODES
 
@@ -883,10 +890,6 @@ SUBROUTINE INIT_VELOCITY_MODES
 
 END SUBROUTINE INIT_VELOCITY_MODES
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 SUBROUTINE UPDATE_AMN_BMN ( DT )
 
   !Updates the random "unsteadiness" coefficients
@@ -920,10 +923,6 @@ SUBROUTINE UPDATE_AMN_BMN ( DT )
   END DO
 
 END SUBROUTINE UPDATE_AMN_BMN
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
 
 SUBROUTINE VELOCITY_FIELD_PINSKI_ET_AL(U,W,X,Z)
 
@@ -979,10 +978,6 @@ SUBROUTINE VELOCITY_FIELD_PINSKI_ET_AL(U,W,X,Z)
 
 END SUBROUTINE VELOCITY_FIELD_PINSKI_ET_AL
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 SUBROUTINE STREAM_FUNCTION_PINSKY (PSI,X,Z)
 
   !Generates the streamfunction that produces the synthetic flow
@@ -1013,10 +1008,6 @@ SUBROUTINE STREAM_FUNCTION_PINSKY (PSI,X,Z)
   PSI = F*PSI - 0.5D0*SHEAR_RATE*Z**2
 
 END SUBROUTINE STREAM_FUNCTION_PINSKY
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
 
 SUBROUTINE VERTICAL_FUNCTION (F,DF,Z)
 
@@ -1076,10 +1067,6 @@ SUBROUTINE VERTICAL_FUNCTION (F,DF,Z)
   END IF
 
 END SUBROUTINE VERTICAL_FUNCTION
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
 
 SUBROUTINE VELOCITY_VARIANCE_PROFILE (W2,Z)
 
@@ -1144,10 +1131,6 @@ SUBROUTINE VELOCITY_VARIANCE_PROFILE (W2,Z)
 
 END SUBROUTINE VELOCITY_VARIANCE_PROFILE
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 FUNCTION E_VAP(RV,P)
 
   !Partial vapor pressure
@@ -1166,10 +1149,6 @@ FUNCTION E_VAP(RV,P)
 
 END FUNCTION E_VAP
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 FUNCTION R_MOIST (Q)
 
   !Gas constant of moist air
@@ -1185,10 +1164,6 @@ FUNCTION R_MOIST (Q)
 
 END FUNCTION R_MOIST
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 FUNCTION CP_MOIST(Q)
 
   !Specific heat of moist air
@@ -1203,10 +1178,6 @@ FUNCTION CP_MOIST(Q)
   CP_MOIST = (CP_D + Q*CP_V)/(1.D0 + Q)
 
 END FUNCTION CP_MOIST
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
 
 FUNCTION ES_LIQ(T)
 
@@ -1224,10 +1195,6 @@ FUNCTION ES_LIQ(T)
 
 END FUNCTION ES_LIQ
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 FUNCTION ES_ICE(T)
 
   !SATURATION VAPOR PRESSURE OVER ICE
@@ -1244,10 +1211,6 @@ FUNCTION ES_ICE(T)
 
 END FUNCTION ES_ICE
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 FUNCTION S_LIQ(T,P,Q)
 
   !SUPERSATURATION OVER LIQUID
@@ -1261,10 +1224,6 @@ FUNCTION S_LIQ(T,P,Q)
   S_LIQ = E_VAP(Q,P)/ES_LIQ(T) - 1.D0
 
 END FUNCTION S_LIQ
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
 
 FUNCTION RV_S(T,P)
 
@@ -1284,10 +1243,6 @@ FUNCTION RV_S(T,P)
   RV_S = EPS*ES_LIQ(T)/( P - ES_LIQ(T) )
 
 END FUNCTION RV_S
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
 
 SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
 
@@ -1401,10 +1356,6 @@ SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
 
 END SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
 
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************
-
 SUBROUTINE GET_ENV_PRESSURE_TEMP
 
    use ENVIRONMENT
@@ -1445,7 +1396,3 @@ SUBROUTINE GET_ENV_PRESSURE_TEMP
    END DO
 
 END SUBROUTINE GET_ENV_PRESSURE_TEMP
-
-!********************************************************************************
-!********************************************************************************
-!********************************************************************************

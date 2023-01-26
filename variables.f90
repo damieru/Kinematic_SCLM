@@ -1,20 +1,37 @@
 module HDF5_VARIABLES
-    use HDF5
-    integer(HID_T) :: file_id, dset_id, dspace_id !Identifiers
-    integer(HID_T) :: memspace
-    integer :: error !Error flag
-    integer :: rnk = 3
-    integer(HSIZE_T), dimension(3) :: data_dims !Data dimensions
-    integer(HSIZE_T), dimension(3) :: dimsm     !Subset Data dimensions
-    integer(HSIZE_T), dimension(3) :: count, offset
-    integer(HSIZE_T), dimension(2) :: count2, offset2
-    integer(HSIZE_T), dimension(2) :: dimsm2
-    integer(HSIZE_T), dimension(3) :: stride  = (/1,1,1/)
-    integer(HSIZE_T), dimension(3) :: block   = (/1,1,1/)
-    integer(HSIZE_T), dimension(2) :: stride2 = (/1,1/)
-    integer(HSIZE_T), dimension(2) :: block2  = (/1,1/)
+   use HDF5
+   integer(HID_T) :: file_id, dset_id, dspace_id !Identifiers
+   integer(HID_T) :: memspace
+   integer :: error !Error flag
+   integer :: rnk = 3
+   integer(HSIZE_T), dimension(3) :: data_dims !Data dimensions
+   integer(HSIZE_T), dimension(3) :: dimsm     !Subset Data dimensions
+   integer(HSIZE_T), dimension(3) :: count, offset
+   integer(HSIZE_T), dimension(2) :: count2, offset2
+   integer(HSIZE_T), dimension(2) :: dimsm2
+   integer(HSIZE_T), dimension(3) :: stride  = (/1,1,1/)
+   integer(HSIZE_T), dimension(3) :: block   = (/1,1,1/)
+   integer(HSIZE_T), dimension(2) :: stride2 = (/1,1/)
+   integer(HSIZE_T), dimension(2) :: block2  = (/1,1/)
+end module
 
-end module HDF5_VARIABLES
+module CUSTOM_TYPES
+
+	type :: box_address
+		integer*8 :: i, j
+	end type
+
+	type :: t_cell_node
+		type(box_address) :: srd_boxes(4)
+		real*8 :: pos(2)
+	end type
+
+   type :: t_particle_list
+      integer*8, allocatable :: p_list(:)
+      integer*8              :: count
+   end type
+
+end module
 
 MODULE VELOCITY_MODES
 
@@ -32,7 +49,7 @@ MODULE VELOCITY_MODES
   REAL*8 :: DZ_INV_W                       !Vertical velocity
                                            !overshoot above inversion
 
-END MODULE VELOCITY_MODES
+END MODULE
 
 MODULE ENVIRONMENT
 
@@ -50,35 +67,62 @@ MODULE ENVIRONMENT
                          !initialized with an unrealistically large
                          !value
 
-END MODULE ENVIRONMENT
+END MODULE
 
 MODULE PERIOD3D
 
   REAL*8 :: LX,LY,LZ
 
-END MODULE PERIOD3D
+END MODULE
 
 MODULE GRID
+	use CUSTOM_TYPES
 
-  INTEGER*8 :: NX,NZ
-  INTEGER*8 :: NXP,NXM,NZP,NZM
+	INTEGER*8 :: NX,NZ
 
-  REAL*8    :: DX,DY,DZ
-END MODULE GRID
+	INTEGER*8 :: NXP,NXM,NZP,NZM
+	REAL*8    :: DX,DY,DZ
+
+	type(t_cell_node)    , allocatable :: cell_nodes(:,:)
+   type(t_particle_list), allocatable :: boxes(:,:)
+END MODULE
+
+module SD_VARIABLES
+	use CUSTOM_TYPES
+	implicit NONE
+
+	integer*8           				   :: N_sd, DPB_input			! Total number of superdroplets and number of SDs per box (input)
+	real*8              				   :: init_ice_radius			! Initial ice radius for ice particles
+	real*8              				   :: n_drops =1.D9				! Droplets per unit mass of dry air[1/kg] (pristine: 1e8, poluted: 1e9)
+	real*8           , allocatable :: X(:,:),XP(:,:)			! Positions of droplets (X: current, XP: previous)
+	type(box_address), allocatable :: SD_box_address(:)		! Box addresses for each SD
+	real*8           , allocatable :: R_dry(:), R_crit(:)		! Dry and Activation radius
+	real*8           , allocatable :: R(:,:)						! Instantaneous radius
+	real*8           , allocatable :: Q_k(:), T_k(:)			! Local mixing ratio and potentitial temperature
+	real*8           , allocatable :: u_prime(:,:)					! Local velocity fluctuations
+	real*8           , allocatable :: xi(:), S_crit(:)			! multiplicity and critical supersaturation
+	real*8           , allocatable :: T_Freeze(:)				! Freezing temperature
+	real*8           , parameter   :: C_gamma = 1.5D-9, kappa = 0.61D0
+	!Statistical Parameters
+	real*8 :: R_mean,R_mean_ice,R_mean_water, sigma  !Average R and std deviation
+	real*8 :: Activated_frac, init_ice_frac
+	!Logical Attributes
+	logical, allocatable :: Activated(:), Frozen(:)
+	integer, allocatable :: phase_change(:) !0 for no change, 1 for freezing and -1 for melting
+	logical :: im_freezing
+	!Log da saturação local
+	real*8, allocatable :: Sk_log(:)
+end module SD_VARIABLES
 
 MODULE THERMODYNAMIC_VAR
 
-  REAL*8, ALLOCATABLE :: THETA(:,:),TEMP(:,:)
-
-  REAL*8, ALLOCATABLE :: FTH_TURB_DT(:,:), FRV_TURB_DT(:,:)
-
-  REAL*8, ALLOCATABLE :: RV(:,:),RL(:,:),RI(:,:),SAT(:,:)
-
-  REAL*8, ALLOCATABLE :: GAC(:,:)
-
-  REAL*8, ALLOCATABLE :: DPB(:,:)
-
-  REAL*8, ALLOCATABLE :: N_DROPS_BOX(:,:)
+  REAL*8 , ALLOCATABLE :: THETA(:,:)      , TEMP(:,:)
+  REAL*8 , ALLOCATABLE :: FTH_TURB_DT(:,:), FRV_TURB_DT(:,:)
+  REAL*8 , ALLOCATABLE :: RV(:,:)         , RL(:,:), RI(:,:), SAT(:,:)
+  REAL*8 , ALLOCATABLE :: GAC(:,:)
+  REAL*8 , ALLOCATABLE :: N_DROPS_BOX(:,:)
+  integer, ALLOCATABLE :: DPB(:,:)
+  
 
 END MODULE THERMODYNAMIC_VAR
 
@@ -142,9 +186,6 @@ MODULE ADVECTION
   !Typical eddy size and TKE dissipation rate
   real*8 :: L, eps
 
-  !Path to velocities file
-  character(100) :: velocities_file
-
   ! Tells if advected variables will be updated
   logical :: ADVECT
 
@@ -167,11 +208,11 @@ MODULE STEPPER
 
 END MODULE STEPPER
 
-MODULE OUTPUT
+MODULE IO_PARAMETERS
 
-  CHARACTER(100) :: FILE_NAME
-  CHARACTER(100) :: FILE_PLACE
-
-END MODULE OUTPUT
+  character(len=100) :: input_file, output_file, output_folder
+  character(len=  3) :: field ! Input variable. 'u' - velocities, 'psi' - stream function
+   
+END MODULE IO_PARAMETERS
 
 

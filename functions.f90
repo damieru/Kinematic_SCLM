@@ -501,10 +501,12 @@ contains
       use GRID, only: NX, NZ, boxes
       integer*8 :: i, j, k
 
-      !Counting particles per box
+      !Counting particles in each box and giving them an address.
       DPB = 0;
       do k = 1,N_sd
          call WHICH_BOX(k,i,j)
+         SD_box_address(k)%i = i; SD_box_address(k)%j = j
+
          DPB(i,j)            = DPB(i,j) + 1
          N_DROPS_BOX(i,j)    = N_DROPS_BOX(i,j) + xi(k)*NX*NZ
       end do
@@ -520,22 +522,9 @@ contains
 
       !Mapping boxes to particles and vice-versa
       do k = 1,N_sd
-         call WHICH_BOX(k,i,j)
-         SD_box_address(k)%i = i; SD_box_address(k)%j = j
+         i = SD_box_address(k)%i; j = SD_box_address(k)%j
          boxes(i,j)%count    = boxes(i,j)%count + 1
          boxes(i,j)%p_list(boxes(i,j)%count) = k
-      end do
-
-      !Sanity check (Remove later)
-      do i = 1,NX
-         do j = 1,NZ
-            if (DPB(i,j) == boxes(i,j)%count) then
-               continue
-            else
-               print*,'Particle count incorrect.'
-               stop
-            end if
-         end do
       end do
 
    end subroutine

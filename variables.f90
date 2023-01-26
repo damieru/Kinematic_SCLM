@@ -46,9 +46,6 @@ MODULE VELOCITY_MODES
 
   REAL*8 :: LLX,LLZ                        !Periods in "x" and "z" directions
 
-  REAL*8 :: DZ_INV_W                       !Vertical velocity
-                                           !overshoot above inversion
-
 END MODULE
 
 MODULE ENVIRONMENT
@@ -188,12 +185,6 @@ MODULE ADVECTION
 
   ! Tells if advected variables will be updated
   logical :: ADVECT
-
-  ! * * *
-
-  INTEGER :: FLAG_TRANSIENT_FLOW      ! = 1 -> the prescribed flow
-                                      ! changes in time. Otherwise,
-                                      ! the flow is frozen
 
 END MODULE ADVECTION
 

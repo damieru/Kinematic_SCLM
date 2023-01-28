@@ -566,6 +566,10 @@ contains
                error = abs(F)
                R_wet(k) = next
             end do
+            if (isnan(R_wet(k))) then
+               print*,"Wet radius failed to converge. Encountered value is NaN."
+               stop
+            end if
          end if
       end do
    end function WET_RADIUS
@@ -608,7 +612,8 @@ contains
       xi  = ceiling(n_drops/N_sd)
       u_prime = 0.D0
         
-      call INIT_SD_POSITIONS 
+      call INIT_SD_POSITIONS
+      call UPDATE_PARTICLE_BOX_MAP 
       call SAMPLE_DRY(R_dry)
       R(1,:) = R_dry;
       !Calculate initial wet radii
@@ -873,6 +878,7 @@ contains
       RI      = 0.D0
 
       N_boxes = NX*NZ
+      
       do k = 1,N_sd
          i = SD_box_address(k)%i; j = SD_box_address(k)%j
          if (Frozen(k)) then
@@ -882,7 +888,7 @@ contains
             DELTA_L(i,j) = DELTA_L(i,j) + xi(k)*(R(2,k)**3 - R(1,k)  **3)
             RL(i,j)      = RL(i,j)      + xi(k)*(R(2,k)**3 - R_dry(k)**3)
          end if
-            DELTA_F(i,j)     = DELTA_F(i,j) + xi(k)*(R(1,k)**3 - R_dry(k)**3)*phase_change(k)
+         DELTA_F(i,j)     = DELTA_F(i,j) + xi(k)*(R(1,k)**3 - R_dry(k)**3)*phase_change(k)
       end do
         
       DELTA_I = DELTA_I * RHO_LIQ*(4.D0/3*pi)*N_boxes
@@ -902,7 +908,7 @@ contains
       call GET_SCALAR_FORCES_TURB
       THETA = THETA + (LV0*DELTA_L + LS0*DELTA_I + DELTA_F*(LS0 - LV0))/CP_D/Exn + FTH_TURB_DT
       RV    = RV - DELTA_L - DELTA_I + FRV_TURB_DT
-    
+      
       !Updating  temperature
       TEMP = Exn*THETA
    end subroutine UPDATE_BOXES
@@ -1341,7 +1347,7 @@ module ADV_FUNCTIONS
       IDIV  = 0
   
       CALL MPDATA2D (UXA,UZA,THETA,GAC,NX,NZ,IORD,ISOR,NONOS,IDIV,1)
-      CALL MPDATA2D (UXA,UZA,   RV,GAC,NX,NZ,IORD,ISOR,NONOS,IDIV,2)
+      CALL MPDATA2D (UXA,UZA,RV   ,GAC,NX,NZ,IORD,ISOR,NONOS,IDIV,2)
   
    END SUBROUTINE ADVECTION_MPDATA
 

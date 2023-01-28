@@ -21,7 +21,6 @@ PROGRAM MAIN
     CALL INIT_RANDOM_SEED                    !For the (random) prescribed fluid flow
     CALL INIT_SD
     CALL UPDATE_BOXES
-    CALL UPDATE_PARTICLE_BOX_MAP
     CALL SAT_FIELD
 
     CALL GET_VELOCITIES
@@ -43,9 +42,8 @@ PROGRAM MAIN
         
         call HDF5_SAVE_RESULTS(OUT_PER)
 
-        if (mod(int(TIME/DT),10) == 0) then
-            call progress_bar(TIME/T_MAX)
-        end if
+      if (mod(int(TIME/DT),1) == 0) call progress_bar(TIME/T_MAX)
+
         TIME = TIME + DT
     END DO
 END PROGRAM MAIN

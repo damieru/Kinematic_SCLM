@@ -22,13 +22,12 @@ module CUSTOM_TYPES
 	end type
 
 	type :: t_cell_node
-		type(box_address) :: srd_boxes(4)
+		type(box_address) :: srd_box(4)
 		real*8 :: pos(2)
 	end type
 
    type :: t_particle_list
       integer*8, allocatable :: p_list(:)
-      integer*8              :: count
    end type
 
 end module
@@ -113,12 +112,12 @@ end module SD_VARIABLES
 
 MODULE THERMODYNAMIC_VAR
 
-  REAL*8 , ALLOCATABLE :: THETA(:,:)      , TEMP(:,:)
-  REAL*8 , ALLOCATABLE :: FTH_TURB_DT(:,:), FRV_TURB_DT(:,:)
-  REAL*8 , ALLOCATABLE :: RV(:,:)         , RL(:,:), RI(:,:), SAT(:,:)
-  REAL*8 , ALLOCATABLE :: GAC(:,:)
-  REAL*8 , ALLOCATABLE :: N_DROPS_BOX(:,:)
-  integer, ALLOCATABLE :: DPB(:,:)
+  REAL*8   , ALLOCATABLE :: THETA(:,:)      , TEMP(:,:)
+  REAL*8   , ALLOCATABLE :: FTH_TURB_DT(:,:), FRV_TURB_DT(:,:)
+  REAL*8   , ALLOCATABLE :: RV(:,:)         , RL(:,:), RI(:,:), SAT(:,:)
+  REAL*8   , ALLOCATABLE :: GAC(:,:)
+  REAL*8   , ALLOCATABLE :: N_DROPS_BOX(:,:)
+  integer*8, ALLOCATABLE :: DPB(:,:)
   
 
 END MODULE THERMODYNAMIC_VAR

@@ -1,51 +1,52 @@
 PROGRAM MAIN
-    use STEPPER
-    use THERMODYNAMIC_VAR
-    !use ADVECTION
-    use ADV_FUNCTIONS
-    use HDF5_VARIABLES
-    use SD_FUNCTIONS
-    use BOX
-    use FUNCTIONS, only: progress_bar, exner
-    use OMP_LIB
+   use STEPPER
+   use THERMODYNAMIC_VAR
+   use ADVECTION
+   use ADV_FUNCTIONS
+   use HDF5_VARIABLES
+   use SD_FUNCTIONS
+   use BOX
+   use FUNCTIONS, only: progress_bar, exner
+   use OMP_LIB
 
-    IMPLICIT NONE
+   IMPLICIT NONE
 
-    INTEGER*8 :: I
+   INTEGER*8 :: I
 
-    !Initialization -----------------------------------------------------
-    CALL PRINT_REMARKS
-    CALL READIN                              !Reads the input parameters
-    CALL GET_ENVIRONMENT_PROFILES_DYCOMS_II  !Sets up the environmental base state with a strong temperature inversion at z_inv
-    CALL INIT_THERMODYNAMIC_VAR_SD           !Initializes the thermodynamic fields using environmental profiles
-    CALL INIT_RANDOM_SEED                    !For the (random) prescribed fluid flow
-    CALL INIT_SD
-    CALL UPDATE_BOXES
-    CALL SAT_FIELD
+   !Initialization -----------------------------------------------------
+   CALL PRINT_REMARKS
+   CALL READIN                              !Reads the input parameters
+   CALL GET_ENVIRONMENT_PROFILES_DYCOMS_II  !Sets up the environmental base state with a strong temperature inversion at z_inv
+   CALL INIT_THERMODYNAMIC_VAR_SD           !Initializes the thermodynamic fields using environmental profiles
+   CALL INIT_RANDOM_SEED                    !For the (random) prescribed fluid flow
+   CALL INIT_SD
+   CALL UPDATE_BOXES
+   CALL SAT_FIELD
+   CALL GET_VELOCITIES
+   CALL HDF5_CREATE_FILE
+   CALL HDF5_SAVE_RESULTS(OUT_PER)
 
-    CALL GET_VELOCITIES
-    CALL HDF5_CREATE_FILE
-    CALL HDF5_SAVE_RESULTS(OUT_PER)
-    TIME = TIME + DT
-    DO I = 2,N_STEPS
-        CALL CHECK_ADV
-        IF (ADVECT) THEN
-            !Updates thermodynamic fields using Euler scheme ------------------
-            CALL ADVECTION_MPDATA
-            CALL GET_VELOCITIES
-        END IF
-        CALL ADVECTION_SD
-        CALL UPDATE_PARTICLE_BOX_MAP
-        CALL GROW_DROPLETS      ! Solve growth equations
-        CALL UPDATE_BOXES       ! Update grid boxes mean properties after condensation
-        CALL SAT_FIELD          ! Diagnostic only
+   TIME = TIME + DT
+
+   DO I = 2,N_STEPS
+      CALL CHECK_ADV
+      IF (ADVECT) THEN
+         !Updates thermodynamic fields using Euler scheme ------------------
+         CALL ADVECTION_MPDATA
+         CALL GET_VELOCITIES
+      END IF
+      CALL ADVECTION_SD
+      CALL UPDATE_PARTICLE_BOX_MAP
+      CALL GROW_DROPLETS      ! Solve growth equations
+      CALL UPDATE_BOXES       ! Update grid boxes mean properties after condensation
+      CALL SAT_FIELD          ! Diagnostic only
         
-        call HDF5_SAVE_RESULTS(OUT_PER)
+      call HDF5_SAVE_RESULTS(OUT_PER)
 
       if (mod(int(TIME/DT),1) == 0) call progress_bar(TIME/T_MAX)
 
-        TIME = TIME + DT
-    END DO
+      TIME = TIME + DT
+   END DO
 END PROGRAM MAIN
 
 SUBROUTINE PRINT_REMARKS
@@ -208,11 +209,7 @@ SUBROUTINE INIT_THERMODYNAMIC_VAR_SD
   !For Boussinesq approximation as in Pinsky et al.
   !Sets a constant value for dry air density distribution
 
-  RHO_BAR = 0.D0
-  DO IZ = 1,NZ
-     RHO_BAR = RHO_BAR + RHO(IZ)
-  END DO
-  RHO_BAR = RHO_BAR/REAL(NZ)
+  RHO_BAR = sum(RHO)/NZ
 
   !Or simply: RHO_BAR = RHO(1)
 
@@ -273,7 +270,7 @@ SUBROUTINE HDF5_CREATE_FILE
    !    inquire(file=file_path, exist=f_exists)
    !end do
 
-   NT = int(NINT(T_MAX)/(60*OUT_PER) + 1,8) ! Number of saved instants
+   NT = int(NINT(T_MAX)/(OUT_PER) + 1,8) ! Number of saved instants
    call h5open_f(error) !Opens HDF5 Fortran interface
    call h5fcreate_f(file_path, H5F_ACC_TRUNC_F, file_id, error) !Creates file
 
@@ -302,7 +299,7 @@ SUBROUTINE HDF5_CREATE_FILE
    call h5dcreate_f(file_id, 'UZ', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
    call h5dclose_f(dset_id,error)
    !Creating DPB dataspace and dataset
-   call h5dcreate_f(file_id, 'DPB', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
+   call h5dcreate_f(file_id, 'DPB', H5T_NATIVE_INTEGER, dspace_id, dset_id, error)
    call h5dclose_f(dset_id,error)
    !Creating SAT dataspace and dataset
    call h5dcreate_f(file_id, 'SAT', H5T_NATIVE_DOUBLE, dspace_id, dset_id, error)
@@ -329,9 +326,9 @@ SUBROUTINE HDF5_CREATE_FILE
 
 END SUBROUTINE HDF5_CREATE_FILE
 
-SUBROUTINE HDF5_SAVE_RESULTS (NMIN)
+SUBROUTINE HDF5_SAVE_RESULTS (NSEC)
 
-    !Prints the output every "NMIN" minutes
+    !Prints the output every "NSEC" minutes
     use HDF5_VARIABLES
     use STEPPER
     use ADVECTION, ONLY: UX,UZ
@@ -342,14 +339,14 @@ SUBROUTINE HDF5_SAVE_RESULTS (NMIN)
     use IO_PARAMETERS
     IMPLICIT NONE
 
-    REAL*8  :: NMIN
+    REAL*8  :: NSEC
     INTEGER :: IT,FREQ
     CHARACTER(100) :: FILE_PATH
 
     FILE_PATH = TRIM(output_folder)//'/'//TRIM(output_file)
 
     IT = NINT( TIME/DT )
-    FREQ = NINT( NMIN * 60.D0/DT )
+    FREQ = NINT( NSEC/DT )
 
     IF ( MOD(IT,FREQ).EQ.0 ) THEN
 
@@ -441,7 +438,7 @@ SUBROUTINE HDF5_SAVE_RESULTS (NMIN)
         !Select subset
         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
         !Write subset to dataset
-        call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, DPB, dimsm, error, memspace, dspace_id)
+        call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, DPB, dimsm, error, memspace, dspace_id)
         !Close dataset
         call h5dclose_f(dset_id, error)
 
@@ -691,7 +688,6 @@ END FUNCTION ES_ICE
 FUNCTION S_LIQ(T,P,Q)
 
   !SUPERSATURATION OVER LIQUID
-
   IMPLICIT NONE
 
   REAL*8 :: S_LIQ
@@ -745,8 +741,6 @@ SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
     z_table     = (/0.D0  , 500.D0 , 900.D0, 1100.D0, 1150.D0, 1800.D0 /)
     theta_table = (/264.D0, 265.5D0, 266.D0, 266.5D0, 271.D0 , 276.D0  /)
     rv_table    = (/1.8D0 , 1.45D0 , 1.3D0 , 1.2D0  , 1.65D0 , 1.D0    /)/1000
-   !rv_table    = (/1.8D0 , 1.45D0 , 1.3D0 , 1.2D0  , 1.15D0 , 0.7D0   /)
-
 
     !Warm Profile
     !z_table     = (/0.D0, 840.D0, 841.D0, 850.D0, 900.D0, 1250.D0 /)
@@ -777,7 +771,6 @@ SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
     ! OLD PROFILES--------------------------------
     !TH_E = 289.D0
     !RV_E = 9.D-3  !7.5D-3
-
     !--------------------------------------------
     !Inversion layer
     !--------------------------------------------
@@ -829,7 +822,6 @@ SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
     TT        = DZ 
     EDDY_MAX  = (1.D2**(4.D0/3))*eps**(1.D0/3) ! Melhorar: Importar DELTA e EPS do gerador de velocidades.
     EDDY_DIFF = 0.5D0*EDDY_MAX*ERFC((Z - Z_INV)/(TT*sqrt(2.D0)))
-  ! * * *
 
 END SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
 

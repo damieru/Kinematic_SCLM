@@ -500,33 +500,36 @@ contains
       use THERMODYNAMIC_VAR, only: DPB, N_DROPS_BOX
       use GRID, only: NX, NZ, boxes
       integer*8 :: i, j, k
+      integer*8, allocatable :: temp_list(:)
 
-      !Counting particles in each box and giving them an address.
-      DPB = 0;
-      do k = 1,N_sd
-         call WHICH_BOX(k,i,j)
-         SD_box_address(k)%i = i; SD_box_address(k)%j = j
-
-         DPB(i,j)            = DPB(i,j) + 1
-         N_DROPS_BOX(i,j)    = N_DROPS_BOX(i,j) + xi(k)*NX*NZ
-      end do
-
-      !Allocating particle lists
+      !Resetting particle lists
       if (allocated(boxes)) deallocate(boxes)
       allocate(boxes(NX,NZ))
-      do i = 1,NX
-         do j = 1,NZ
-            allocate(boxes(i,j)%p_list(DPB(i,j)))
+      do i=1,NX   
+         do j=1,NZ
+            allocate(boxes(i,j)%p_list(2*DPB_input))
          end do
       end do
 
-      !Mapping boxes to particles and vice-versa
+      !Counting particles in each box and giving them an address.
+      DPB = 0.D0;
+      N_DROPS_BOX = 0.D0;
       do k = 1,N_sd
-         i = SD_box_address(k)%i; j = SD_box_address(k)%j
-         boxes(i,j)%count    = boxes(i,j)%count + 1
-         boxes(i,j)%p_list(boxes(i,j)%count) = k
+         call WHICH_BOX(k,i,j)
+         SD_box_address(k)%i = i; SD_box_address(k)%j = j
+         DPB(i,j)            = DPB(i,j) + 1
+         N_DROPS_BOX(i,j)    = N_DROPS_BOX(i,j) + xi(k)
+         boxes(i,j)%p_list(DPB(i,j)) = k
       end do
 
+      ! "Trimming" lists
+      do i = 1,NX
+         do j = 1,NZ
+            allocate(temp_list(DPB(i,j)))
+            temp_list = boxes(i,j)%p_list(1:DPB(i,j))
+            call move_alloc(from=temp_list,to=boxes(i,j)%p_list)
+         end do
+      end do
    end subroutine
 
    function WET_RADIUS(dry) result(R_wet)
@@ -575,17 +578,23 @@ contains
    end function WET_RADIUS
 
    subroutine INIT_SD_POSITIONS
-      use PERIOD3D
+      use GRID, only: NX, NZ, DX, DZ
       implicit none
         
       real*8    :: rn(2)
-      integer*8 :: i
+      integer*8 :: i, j, k,m
 
       call INIT_RANDOM_SEED
-      do i = 1,N_sd
+      k = 0
+      do i = 1,NX
+         do j = 1,NZ
+            do m = 1,DPB_input
+               k = k + 1
          call random_number(rn)
-         X(i,1) = rn(1)*LX
-         X(i,2) = rn(2)*LZ
+               X(k,1) = (i - rn(1))*DX
+               X(k,2) = (j - rn(2))*DZ
+            end do
+         end do
       end do
    end subroutine INIT_SD_POSITIONS
 
@@ -609,19 +618,20 @@ contains
       allocate(Q_k(N_sd), T_k(N_sd),u_prime(N_sd,2))
       allocate(Sk_log(N_sd))
 
-      xi  = ceiling(n_drops/N_sd)
+      xi  = ceiling(n_drops/N_sd)*NX*NZ
       u_prime = 0.D0
         
       call INIT_SD_POSITIONS
       call UPDATE_PARTICLE_BOX_MAP 
       call SAMPLE_DRY(R_dry)
-      R(1,:) = R_dry;
+      
       !Calculate initial wet radii
       do k = 1,N_sd
          Q_k(k) = RV  (SD_box_address(k)%i , SD_box_address(k)%j)
          T_k(k) = TEMP(SD_box_address(k)%i , SD_box_address(k)%j)
       end do
       R(2,:) = WET_RADIUS(R_dry)        
+      R(1,:) = R(2,:)    
       k = NINT(N_sd*init_ice_frac)
       call SAMPLE_TFREEZING(T_Freeze)
       Frozen(1:k)      = .true.
@@ -667,10 +677,11 @@ contains
       use ADVECTION         , only: L, eps
       use ENVIRONMENT       , only: Z_INV
       use OMP_LIB
+
       implicit none
 
       integer*8 :: k, m, n, count
-      real*8, parameter  :: tol = 1.D-8
+      real*8, parameter  :: tol = 1.D-14
       real*8, parameter  :: Ct = 0.63D0 !Lasher-Trapp et al. 2005
       real*8, parameter  :: Ce = 0.89D0 !Schumann 1991
       real*8 :: error, next, F, F_prime, A
@@ -691,7 +702,6 @@ contains
       !$OMP PARALLEL private(P,T,e_k,S_k,A,D,error,Y,count,F,F_prime,next,dq_k,dq_k_F,dT_k,m,n) !Removed psi
       !$OMP DO
       do k = 1,N_sd
-
          !P = interpol(Z_E,PR_E,X(j,2)) !Pressure at the position of SD
          m = SD_box_address(k)%i; n = SD_box_address(k)%j
          P = PR_E (n)   !Pressure at the center of the box
@@ -760,7 +770,6 @@ contains
             end if 
          end do
          R(2,k) = sqrt(Y)              
-         !Sk_log(j) = S_k
       end do
       !$OMP END DO
       !$OMP END PARALLEL
@@ -868,7 +877,6 @@ contains
       integer*8 :: k, i, j
       real*8    :: DELTA_L(NX,NZ), DELTA_I(NX,NZ), DELTA_F(NX,NZ)
       real*8    :: P, Exn(NX,NZ)
-      real*8    :: N_boxes
 
       DELTA_L = 0.D0
       DELTA_I = 0.D0
@@ -877,8 +885,6 @@ contains
       RL      = 0.D0
       RI      = 0.D0
 
-      N_boxes = NX*NZ
-      
       do k = 1,N_sd
          i = SD_box_address(k)%i; j = SD_box_address(k)%j
          if (Frozen(k)) then
@@ -891,16 +897,16 @@ contains
          DELTA_F(i,j)     = DELTA_F(i,j) + xi(k)*(R(1,k)**3 - R_dry(k)**3)*phase_change(k)
       end do
         
-      DELTA_I = DELTA_I * RHO_LIQ*(4.D0/3*pi)*N_boxes
-      DELTA_L = DELTA_L * RHO_LIQ*(4.D0/3*pi)*N_boxes
-      DELTA_F = DELTA_F * RHO_LIQ*(4.D0/3*pi)*N_boxes
-      RI      = RI      * RHO_LIQ*(4.D0/3*pi)*N_boxes
-      RL      = RL      * RHO_LIQ*(4.D0/3*pi)*N_boxes
+      DELTA_I = DELTA_I * RHO_LIQ*(4.D0/3*pi)
+      DELTA_L = DELTA_L * RHO_LIQ*(4.D0/3*pi)
+      DELTA_F = DELTA_F * RHO_LIQ*(4.D0/3*pi)
+      RI      = RI      * RHO_LIQ*(4.D0/3*pi)
+      RL      = RL      * RHO_LIQ*(4.D0/3*pi)
     
       !Gathering value of Pressure and Exner function at grid box center 
       !from environmental pressure profile
       do j = 1,NZ
-         P        = interpol(Z_E,PR_E,(real(j)-0.5)*DZ)
+         P        = interpol(Z_E,PR_E,(real(j,8)-0.5D0)*DZ)
          Exn(:,j) = (P/P00)**(R_D/CP_D)
       end do
     
@@ -931,7 +937,7 @@ contains
 
    ! Cloud in cell functions ------------------------------------------------
 
-   function bilinear_wheight(r) result(b)
+   function bilinear_weight(r) result(b)
       real*8, intent(in) :: r(2)
       real*8 :: b
 
@@ -965,34 +971,65 @@ contains
 
       if (.not.allocated(cell_nodes)) allocate(cell_nodes(NXP,NZP))
 
-      !Defining the 4 neighbouring boxes around each node
       do i = 1,NXP
          do j = 1,NZP
-            cell_nodes(i,j)%srd_boxes(1) = periodic_box(i  ,j  )
-            cell_nodes(i,j)%srd_boxes(2) = periodic_box(i-1,j  )
-            cell_nodes(i,j)%srd_boxes(3) = periodic_box(i-1,j-1)
-            cell_nodes(i,j)%srd_boxes(4) = periodic_box(i  ,j-1)
+            !Defining the 4 neighbouring boxes around each node
+            cell_nodes(i,j)%srd_box(1) = periodic_box(i  ,j  )
+            cell_nodes(i,j)%srd_box(2) = periodic_box(i-1,j  )
+            cell_nodes(i,j)%srd_box(3) = periodic_box(i-1,j-1)
+            cell_nodes(i,j)%srd_box(4) = periodic_box(i  ,j-1)
 
+            !Defining the position of each node in space (m)
             cell_nodes(i,j)%pos = (/DX*(i-1), DZ*(j-1)/)
          end do
       end do
    end subroutine
 
-   function CIC_SCALAR_AT_NODES(LAGR_SCALAR,PART_POS) result(SCALAR_FIELD)
-      use SD_VARIABLES, only: N_sd
-      use GRID
-      real*8   :: LAGR_SCALAR(N_sd), PART_POS(N_sd)
-      real*8   :: SCALAR_FIELD(NXP,NZP)
-      integer*8:: i, j
+   function CIC_SCALAR_AT_NODES(LAGR_SCALAR) result(SCALAR_FIELD)
+      use SD_VARIABLES, only: N_sd, X
+      use CUSTOM_TYPES
+      real*8                 :: LAGR_SCALAR(N_sd)
+      real*8                 :: SCALAR_FIELD(NXP,NZP), NN
+      integer*8, allocatable :: srd_particles(:)
+      real*8,    allocatable :: bw(:)
+      
+      integer*8:: i, j, k, m, n
   
       do i = 1,NXP
          do j = 1,NZP
+            !Reset the surrounding particles list
+            if (allocated(srd_particles)) then
+               deallocate(srd_particles)
+               allocate(srd_particles(0))
+            end if
+            
             !Get the list of particles from surrounding boxes
-            !Calculate SCALAR_FIELD(i,j) based on eq. 31
+            do k = 1,4
+               m = cell_nodes(i,j)%srd_box(k)%i
+               n = cell_nodes(i,j)%srd_box(k)%j
+               srd_particles = [srd_particles, boxes(m,n)%p_list]
+            end do
+
+            !Reset the weights list
+            if (allocated(bw)) deallocate(bw)
+            allocate(bw(size(srd_particles)))
+
+            !Calculate bw and NN
+            do k = 1,size(bw)
+               bw(k) = bilinear_weight(X(srd_particles(k),:) - cell_nodes(i,j)%pos)
+            end do
+            NN = sum(bw)
+            
+            !Calculate SCALAR_FIELD(i,j)
+            SCALAR_FIELD(i,j) = 0.D0
+            do k = 1,size(srd_particles)
+               SCALAR_FIELD(i,j) = SCALAR_FIELD(i,j) + LAGR_SCALAR(srd_particles(k)) * bw(k)
+            end do
+            SCALAR_FIELD(i,j) = SCALAR_FIELD(i,j)/NN
          end do
       end do
 
-   end function
+   end function CIC_SCALAR_AT_NODES
 
    SUBROUTINE GET_SCALAR_FORCES_TURB
   

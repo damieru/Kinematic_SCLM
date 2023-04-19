@@ -63,8 +63,7 @@ allocate(CP(N1M,N2M),CN(N1M,N2M),MX(N1M,N2M),MN(N1M,N2M))
 
 ! test dimensions:
 if(n1m.ne.n.or.n2m.ne.m) then
-  print*,' dimensions do not match in advection. stop'
-  stop 'mpdata'
+  stop 'MPDATA2D: dimensions do not match in advection.'
 end if
 
 IF(ISOR.EQ.3) IORD=MAX0(IORD,3)

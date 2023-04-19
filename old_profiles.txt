@@ -1,0 +1,34 @@
+!Warm Profile
+   !z_table     = (/0.D0, 840.D0, 841.D0, 850.D0, 900.D0, 1250.D0 /)
+   !theta_table = (/289.7D0, 298.7D0, 302.4D0, 308.2D0, 311.85D0, 370.D0/)
+   !rv_table    = (/17.0D0, 16.3D0, 10.7D0, 4.2D0, 3.0D0, 0.1D0/)/1000.D0
+
+   !Paper do Abade
+   ! z_table = linspace(0.D0,LZ,1251)
+   ! allocate( theta_table(size(z_table)) , rv_table(size(z_table)) )
+   ! do k = 1,size(z_table)
+   !     if (z_table(k) < z_inv) then
+   !         theta_table(k) = 289.D0
+   !         rv_table(k)    = 8.9D0/1000
+   !     else
+   !         theta_table(k) = 289.D0 + (z_table(k) - z_inv)**(1.D0/3)
+   !         rv_table(k)    = 1.5D0/1000
+   !     end if
+   ! end do
+
+   ! OLD PROFILES--------------------------------
+   !TH_E = 289.D0
+   !RV_E = 9.D-3  !7.5D-3
+   !--------------------------------------------
+   !Inversion layer
+   !--------------------------------------------
+
+   !DO K = 1,NZ
+      ! Z = DZ*K - 0.5D0*DZ
+      ! IF (Z.GT.Z_INV) THEN
+      !    TH_E(K) = 289.D0 + (Z-Z_INV)**(1.D0/3.D0)
+      !    RV_E(K) = 1.5D-3
+      ! END IF
+   !END DO
+
+   ! OLD PROFILES-------------------------------

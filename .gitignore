@@ -177,5 +177,6 @@ Input/
 run_sims.sh
 *job*
 *funk*
+*sync*sh
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,windows,macos,c,fortran

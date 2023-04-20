@@ -179,4 +179,7 @@ run_sims.sh
 *funk*
 *sync*sh
 
+#Exceptions
+!eps_profile.dat
+
 # End of https://www.toptal.com/developers/gitignore/api/linux,windows,macos,c,fortran

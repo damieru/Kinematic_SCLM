@@ -827,7 +827,7 @@ contains
       integer   :: i, j, k
       integer  , allocatable :: temp_list(:)
       integer   :: prelocated_list_size
-      integer, parameter :: prelocation_safety_factor = 4
+      integer, parameter :: prelocation_safety_factor = 2
 
       !Resetting particle lists
       prelocated_list_size = prelocation_safety_factor*DPB_input
@@ -848,14 +848,15 @@ contains
          j = SD_box(k)%j
          DPB(i,j) = DPB(i,j) + 1
          N_DROPS_BOX(i,j) = N_DROPS_BOX(i,j) + xi(k)
-         boxes(i,j)%p_list(DPB(i,j)) = k
+
+         if (DPB(i,j) > prelocated_list_size) then
+            !Append to the end of the list
+            boxes(i,j)%p_list = [boxes(i,j)%p_list, k]
+         else  
+            !Assign to position 
+            boxes(i,j)%p_list(DPB(i,j)) = k
+         end if
       end do
-      
-      !Temporary solution to avoid crashing. Review this list algorithm.
-      if (any(DPB > prelocated_list_size)) then
-         print*, "Particle count larger than list size (Max = ",maxval(DPB),")."
-         stop 
-      end if
 
       ! "Trimming" lists
       do i = 1,NX

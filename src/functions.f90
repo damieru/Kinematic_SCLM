@@ -88,7 +88,7 @@ contains
    end function PRETTY_TIME
 
    subroutine BOX_MULLER (G1,G2)
-
+      !Samples up to two standard gaussian variables
       implicit none
 
       real*8 :: W, G1, X1, X2, RAND(2)
@@ -108,6 +108,20 @@ contains
       if (present(G2)) G2 = X2*W
 
    end subroutine BOX_MULLER
+
+   subroutine random_integer(min, max, r)
+
+      ! Samples a random integer in the interval [min, max]
+      ! with uniform distribution
+
+      integer, intent(in)  :: min, max
+      integer, intent(out) :: r
+      real*8 :: r_float
+   
+      call RANDOM_NUMBER(r_float)
+      r = floor(r_float*(max - min + 1) + min)
+   
+   end subroutine
 
    subroutine SAMPLE_GAUSSIAN_SCALAR(X,sigma,mu)
       implicit none
@@ -250,25 +264,6 @@ contains
 
       EX = (P/P00)**(R_D/CP_D)
    end function EXNER
-
-   subroutine sort(x)
-      real*8 :: x(:)
-      real*8 :: a
-      integer :: i, check
-
-      check = 1
-      do while (check .ne. 0)
-         check = 0
-         do i = 1, size(x)-1
-               if (x(i) > x(i+1)) then
-                  a = x(i+1)
-                  x(i+1) = x(i)
-                  x(i) = a
-                  check = 1
-               end if
-         end do
-      end do
-   end subroutine sort
 
    function PERN(p,NN) result(pp)
       integer   :: p, pp, NN
@@ -542,39 +537,43 @@ contains
    end subroutine SET_CDF_TFREEZING
 
 
-   subroutine SAMPLE_TFREEZING (TF)
+   subroutine SAMPLE_TFREEZING (TF, N)
 
       !Samples "N" values of freezing temperatures (stored in TF(:)) using
       !the inverse transform sampling method. It uses the pre-calculated
       !cumulative distribution function (CDF_TF).
 
-      real*8  :: TF(:), P
-      real*8  :: RAND(1),DELTA
-      integer :: M
-      integer :: I,J,k
+      use FUNCTIONS, only: interpol, random_integer
 
+
+      real*8, allocatable, intent(out) :: TF(:)
+      integer            , intent(in ) :: N
+
+      real*8  :: R, P
+      integer :: k, N_insol
+      integer :: current_size
+
+      print'(A)', 'Randomizing Freezing temperatures. This might take a while...'
       call SET_CDF_TFREEZING
       call INIT_RANDOM_SEED
 
       P = 0.1 !Percentage of SDs with rd_insol
-      k = ceiling(size(TF)*P)
+      N_insol = ceiling(P*N)
+      allocate(TF(N))
 
-      M = SIZE( CDF_TF, DIM = 2 ) - 1
+      current_size = N - N_insol
+      TF(1:current_size) = -40.D0 + 273.15D0
 
-      do I = 1,size(TF)
-         call RANDOM_NUMBER(RAND)
-         J = 0
-         do while (.NOT.((RAND(1).GE.CDF_TF(1,J)).AND.(RAND(1).LT.CDF_TF(1,J+1))))
-            J = J + 1
+      do while (current_size < N)
+         call random_integer(1, current_size, k)
+         call RANDOM_NUMBER(R)
+         R = interpol(CDF_TF(1,:), CDF_TF(0,:), R)
+
+         TF(current_size+1) = TF(k)
+         TF(k) = R
+         current_size = current_size + 1
          end do
-         if (I > k) then
-            TF(I) = -40.D0 + 273.15D0
-         else
-            !Evaluates the temperature corresponding to CDF_TF = RAND(1) by linear interpolation
-            DELTA = ( RAND(1) - CDF_TF(1,J) )/( CDF_TF(1,J+1) - CDF_TF(1,J) )
-            TF(I) = CDF_TF(0,J) + ( CDF_TF(0,J+1) - CDF_TF(0,J) )*DELTA
-         end if
-      end do
+
    end subroutine SAMPLE_TFREEZING
 
    subroutine INIT_RANDOM_SEED

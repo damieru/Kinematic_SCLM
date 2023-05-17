@@ -952,9 +952,8 @@ contains
       allocate(R_dry(N_sd), R_crit(N_sd))
       allocate(R(2,N_sd))
       allocate(xi(N_sd), S_crit(N_sd))
-      allocate(Activated(N_sd), Frozen(N_sd))
+      allocate(Activated(N_sd))
       allocate(phase_change(N_sd))
-      allocate(T_Freeze(N_sd))
       allocate(Q_k(N_sd), TH_k(N_sd))
       allocate(u_prime(N_sd,2),u_prime_old(N_sd,2))
       allocate(Sk_log(N_sd))
@@ -972,10 +971,13 @@ contains
       end do
       R(2,:) = WET_RADIUS(R_dry)
       R(1,:) = R(2,:)
-      k = NINT(N_sd*init_ice_frac)
-      call SAMPLE_TFREEZING(T_Freeze)
-      Frozen(1:k)      = .true.
-      Frozen(k+1:N_sd) = .false.
+
+      if (im_freezing) then
+         call SAMPLE_TFREEZING(T_Freeze, N_sd)
+      end if
+
+      !Initially frozen droplets
+      call INIT_FROZEN_ARRAY(Frozen, N_sd, init_ice_frac)
 
       !Initialize velocity fluctuations
       u_prime     = 0.D0
@@ -1012,6 +1014,32 @@ contains
          end if
       end if
    end subroutine FREEZE
+
+   subroutine INIT_FROZEN_ARRAY(F_ARRAY, N, P)
+
+      use FUNCTIONS, only: random_integer
+      
+      logical, allocatable, intent(out) :: F_ARRAY(:)
+      integer             , intent(in ) :: N
+      real*8              , intent(in ) :: P
+
+      integer :: current_size, k
+
+      current_size = floor( (1-P) * N )
+      allocate(F_ARRAY(N))
+
+      F_ARRAY(1:current_size) = .false.
+
+      do while (current_size < N)
+         call random_integer(1, current_size, k)
+
+         F_ARRAY(current_size+1) = F_ARRAY(k)
+         F_ARRAY(k) = .true.
+         current_size = current_size + 1
+      end do
+
+   end subroutine
+
 
    subroutine GROW_DROPLETS
       use CONSTANTS

@@ -653,17 +653,19 @@ contains
       use SD_VARIABLES, only: N_sd, X
       use CUSTOM_TYPES
       use OMP_LIB
+      use STEPPER, only: TIME
       !Debugging only
       use THERMODYNAMIC_VAR, only: DPB
       !use SD_VARIABLES, only: SD_box
 
-      real*8, intent(in)     :: LAGR_SCALAR(N_sd)
+      real*8, intent(in)  :: LAGR_SCALAR(N_sd)
       real*8                 :: SCALAR_FIELD(NXP,NZP)
       real*8                 :: NN, r(2)
       integer  , allocatable :: srd_particles(:)
       real*8,    allocatable :: bw(:)
 
       integer   :: i, j, k, p, q, m, n, length
+      character(len=30) :: DPB_file_name
 
       !$OMP parallel do private(j, k, p, q, m, n, length, srd_particles, r, bw, NN)
       do i = 1,NXP
@@ -708,13 +710,14 @@ contains
             NN = sum(bw)
 
             if (NN == 0.D0) then
-               print*, "Surrounding particles:", size(srd_particles)
-               open(unit=42,file='last_DPB.dat')
+               print'(A,I0,A,I0,A)', "No surrounding particles at node (",i,',',j,")" 
+               write(DPB_file_name,'(A,F0.2,A)') 'DPB_TIME=',TIME,'.dat'
+               open(unit=42,file=DPB_file_name)
                do p = 1,size(DPB,2)
                   write(42,*) DPB(:,p)
                end do
                close(42)
-               stop "CIC deu merda."
+               NN = 1.D0
             end if
 
             SCALAR_FIELD(i,j) = 0.D0

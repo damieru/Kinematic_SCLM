@@ -1218,7 +1218,7 @@ contains
       use CIC_ROUTINES
       use FUNCTIONS
       use ADVECTION, only: UXN, UZN, C_zero, eps, stochastic_micro_phys
-      use STEPPER  , only: dt
+      use STEPPER  , only: DT_ADV
       use SD_VARIABLES, only: u_prime, u_prime_old, X, XP, N_sd
       !Debugging
       !use SD_VARIABLES, only: SD_box
@@ -1271,7 +1271,7 @@ contains
       
          !Advance particle to midpoint position
          XP(k,:) = X(k,:) !Save previous position
-         X (k,:) = XP(k,:) + 0.5*(u_local + u_prime(k,:))*dt
+         X (k,:) = XP(k,:) + 0.5*(u_local + u_prime(k,:))*DT_ADV
          
          !Apply boundary conditions - Periodic(sides) / Reflection(top and bottom)
          call PARTICLE_BC(X(k,:), LX, LZ)
@@ -1294,9 +1294,9 @@ contains
          call SAMPLE_GAUSSIAN(ksi,1.D0,0.D0)
          
          !Runge-Kutta of 2nd order to advance u_prime in time
-         Du_prime = (a + matmul(b,u_prime_old(k,:)))*dt + sqrt(c*dt)*ksi
+         Du_prime = (a + matmul(b,u_prime_old(k,:)))*DT_ADV + sqrt(c*DT_ADV)*ksi
          u_prime_old(k,:) = u_prime(k,:)
-         u_prime(k,:) = u_prime_old(k,:) + Du_prime + 0.5*matmul(b,Du_prime)*dt
+         u_prime(k,:) = u_prime_old(k,:) + Du_prime + 0.5*matmul(b,Du_prime)*DT_ADV
          
          ! if ( any(isnan(u_prime(k,:))) ) then
          !    print*,'u_prime_old = ', u_prime_old(k,:)
@@ -1473,9 +1473,9 @@ contains
    END SUBROUTINE EVAL_KINEMATIC_PARTICLE_PRESSURE_POS
 
    subroutine ADVECTION_SD
-      use STEPPER     , only: DT
+      use STEPPER     , only: DT_ADV
       use GRID        , only: LX , LZ!, cell_nodes
-      use ADVECTION   , only: UXN, UZN
+      use ADVECTION   , only: UXN, UZN, ADVECT
       use CIC_ROUTINES, only: CIC_SCALAR_AT_PARTICLE, CIC_SCALAR_AT_PARTICLE_2
       use SD_VARIABLES, only: N_sd, u_prime, u_prime_old, X, XP
       use OMP_LIB
@@ -1485,6 +1485,8 @@ contains
 
       integer   :: k
       real*8    :: u_local(2)
+      
+      if (.NOT.ADVECT) return
       
       !call tictoc(time_unit='ms')
       !Update velocity fluctuations and move particles to midpoint
@@ -1496,36 +1498,16 @@ contains
          u_local(1) = CIC_SCALAR_AT_PARTICLE(UXN,k) + 0.5*(u_prime_old(k,1) + u_prime(k,1))
          u_local(2) = CIC_SCALAR_AT_PARTICLE(UZN,k) + 0.5*(u_prime_old(k,2) + u_prime(k,2))
 
-         ! -------------------- EXPERIMENT ------------------
-         ! u_local(1) = 0.D0
-         ! i = SD_box(k)%i; j = SD_box(k)%j
-         ! do m = i,i+1
-         !    do n = j,j+1
-         !       u_local(1) = u_local(1) + UXN(m,n) * bilinear_weight(X(k,:) - cell_nodes(m,n)%pos)
-         !    end do
-         ! end do
-         ! u_local(2) = 0.D0
-         ! i = SD_box(k)%i; j = SD_box(k)%j
-         ! do m = i,i+1
-         !    do n = j,j+1
-         !       u_local(2) = u_local(2) + UZN(m,n) * bilinear_weight(X(k,:) - cell_nodes(m,n)%pos)
-         !    end do
-         ! end do
-
-         ! u_local(1) = u_local(1) + 0.5*(u_prime_old(k,1) + u_prime(k,1))
-         ! u_local(2) = u_local(2) + 0.5*(u_prime_old(k,2) + u_prime(k,2))
-         ! -------------------- EXPERIMENT ------------------
-         
-         if (isnan(u_local(1)).or.isnan(u_local(2))) then
-            print*,'u_prime_old: ', u_prime_old(k,:)
-            print*,'u_prime    : ', u_prime    (k,:)
-            print*,'CIC_TERM   :' , CIC_SCALAR_AT_PARTICLE(UXN,k), CIC_SCALAR_AT_PARTICLE(UZN,k)
-            stop 'NAN'
-         end if  
+         ! if (isnan(u_local(1)).or.isnan(u_local(2))) then
+         !    print*,'u_prime_old: ', u_prime_old(k,:)
+         !    print*,'u_prime    : ', u_prime    (k,:)
+         !    print*,'CIC_TERM   :' , CIC_SCALAR_AT_PARTICLE(UXN,k), CIC_SCALAR_AT_PARTICLE(UZN,k)
+         !    stop 'NAN'
+         ! end if  
 
          !Calculate the provisional position (without compressibility correction)
          !XP(k,:) = X(k,:) !Debugging
-         X(k,:) = XP(k,:) + u_local * dt
+         X(k,:) = XP(k,:) + u_local * DT_ADV
       
          ! Apply boundary conditions - Periodic(sides) / Reflection(top and bottom)
          call PARTICLE_BC(X(k,:), LX, LZ, u_prime(k,:))         
@@ -1539,7 +1521,6 @@ contains
       CALL POSITION_CORRECTION(X)
       !call tictoc(section_name="Pos correction",finish=.true.)
       !call system('clear; cat tictoc.txt')
-      !stop 'fu'
    end subroutine ADVECTION_SD
 
 end module SD_FUNCTIONS
@@ -1557,12 +1538,16 @@ contains
       use SD_VARIABLES     , only: R, xi, N_sd, Frozen, phase_change, R_dry, SD_box
       use SD_VARIABLES     , only: Q_k, TH_k, u_prime
       use THERMODYNAMIC_VAR, only: RL, RI, RV, THETA, TEMP
+      use ADVECTION        , only: ADVECT
       use OMP_LIB
 
 
       integer   :: k, i, j
       real*8    :: DELTA_L(NX,NZ), DELTA_I(NX,NZ), DELTA_F(NX,NZ)
-      real*8    :: FTH_TURB_DT(NX,NZ), FRV_TURB_DT(NX,NZ)
+      real*8, allocatable, save    :: FTH_TURB_DT(:,:), FRV_TURB_DT(:,:)
+
+     
+      if (.NOT.allocated(FTH_TURB_DT)) allocate(FTH_TURB_DT(NX,NZ), FRV_TURB_DT(NX,NZ))
 
       DELTA_L = 0.D0
       DELTA_I = 0.D0
@@ -1593,6 +1578,7 @@ contains
 
       
       !Obtain turbulent fluxes
+      if (ADVECT) then
       call GET_TURB_FLUXES_CIC(u_prime, Q_k, FRV_TURB_DT)
       call GET_TURB_FLUXES_CIC(u_prime, TH_k, FTH_TURB_DT) 
       

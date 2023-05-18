@@ -661,8 +661,8 @@ contains
       real*8, intent(in)  :: LAGR_SCALAR(N_sd)
       real*8                 :: SCALAR_FIELD(NXP,NZP)
       real*8                 :: NN, r(2)
-      integer  , allocatable :: srd_particles(:)
-      real*8,    allocatable :: bw(:)
+      integer,   allocatable :: srd_particles(:)
+      real*8 ,   allocatable :: bw(:)
 
       integer   :: i, j, k, p, q, m, n, length
       character(len=30) :: DPB_file_name
@@ -1833,6 +1833,7 @@ contains
       use ADVECTION
       use GRID
       use IO_PARAMETERS, only: input_file
+      use HDF5_functions, only: HDF5_READ_PSI
 
       integer         :: I,K
       logical, save   :: first_call = .true.

@@ -1,12 +1,13 @@
 module HDF5_functions
 
-   use HDF5_VARIABLES
 
    implicit none
 
 contains
 
    SUBROUTINE HDF5_CREATE_DATA_SET(dlabel, dsize, int_data)
+
+      use HDF5_VARIABLES
 
       character(len=*), intent(in)  :: dlabel
       integer, intent(in)           :: dsize(:)
@@ -30,6 +31,8 @@ contains
    END SUBROUTINE HDF5_CREATE_DATA_SET
 
    SUBROUTINE HDF5_CREATE_FILE
+
+      use HDF5_VARIABLES
 
       use GRID
       use STEPPER, ONLY: T_MAX, OUT_PER
@@ -73,206 +76,169 @@ contains
 
    END SUBROUTINE HDF5_CREATE_FILE
 
+   SUBROUTINE HDF5_SAVE_DATA_DOUBLE(data, dset_name, time_offset)
+
+      use HDF5_VARIABLES, only: memspace, error, file_id, dset_id, dspace_id
+      use HDF5
+
+      real*8           , intent(in) :: data(..)
+      character(len=*) , intent(in) :: dset_name
+      integer, optional, intent(in) :: time_offset
+
+      integer                       :: dspace_rank
+      integer*8       , allocatable :: dcount(:), offset(:)
+      integer(HSIZE_T), allocatable :: stride(:), block_size(:)
+      
+
+      if (present(time_offset)) then
+         dspace_rank = rank(data) + 1
+         dcount  = [shape(data)  , 1]
+         offset = [shape(data)*0, time_offset]
+         stride = dcount*0 + 1
+         block_size = stride;
+      else 
+         dspace_rank = rank(data)
+         dcount = shape(data)
+         offset = shape(data)*0
+         stride = dcount*0 + 1
+         block_size = stride
+      end if
+
+      !Create memory data space
+      call h5screate_simple_f(dspace_rank, dcount, memspace, error)
+      !Open THETA dataset
+      call h5dopen_f(file_id, dset_name, dset_id, error)
+      call h5dget_space_f(dset_id, dspace_id, error)
+      !Select subset
+      call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, dcount, error, stride, block_size)
+      !Write subset to dataset (can't do without the "select rank" statement because of the shitty h5dwrite interface)
+      select rank(data)
+         rank(0)
+            call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, data, dcount, error, memspace, dspace_id)
+         rank(1)
+            call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, data, dcount, error, memspace, dspace_id)
+         rank(2)
+            call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, data, dcount, error, memspace, dspace_id)
+         rank default
+            stop 'Data rank must be either 0, 1 or 2'
+      end select
+      !Close dataset
+      call h5dclose_f(dset_id, error)
+      !Close memory dataspace
+      call h5sclose_f(memspace , error)
+
+   END SUBROUTINE HDF5_SAVE_DATA_DOUBLE
+
+   SUBROUTINE HDF5_SAVE_DATA_INT(data, dset_name, time_offset)
+
+      use HDF5_VARIABLES, only: memspace, error, file_id, dset_id, dspace_id
+      use HDF5
+
+      integer          , intent(in) :: data(..)
+      character(len=*) , intent(in) :: dset_name
+      integer, optional, intent(in) :: time_offset
+
+      integer                       :: dspace_rank
+      integer*8       , allocatable :: dcount(:), offset(:)
+      integer(HSIZE_T), allocatable :: stride(:), block_size(:)
+      
+
+      if (present(time_offset)) then
+         dspace_rank = rank(data) + 1
+         dcount  = [shape(data)  , 1]
+         offset = [shape(data)*0, time_offset]
+         stride = dcount*0 + 1
+         block_size = stride;
+      else 
+         dspace_rank = rank(data)
+         dcount = shape(data)
+         offset = shape(data)*0
+         stride = dcount*0 + 1
+         block_size = stride
+      end if
+
+      !Create memory data space
+      call h5screate_simple_f(dspace_rank, dcount, memspace, error)
+      !Open THETA dataset
+      call h5dopen_f(file_id, dset_name, dset_id, error)
+      call h5dget_space_f(dset_id, dspace_id, error)
+      !Select subset
+      call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, dcount, error, stride, block_size)
+      !Write subset to dataset (can't do without the "select rank" statement because of the shitty h5dwrite interface)
+      select rank(data)
+         rank(0)
+            call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, data, dcount, error, memspace, dspace_id)
+         rank(1)
+            call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, data, dcount, error, memspace, dspace_id)
+         rank(2)
+            call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, data, dcount, error, memspace, dspace_id)
+         rank default
+            stop 'Data rank must be either 0, 1 or 2'
+      end select
+      !Close dataset
+      call h5dclose_f(dset_id, error)
+      !Close memory dataspace
+      call h5sclose_f(memspace , error)
+
+   END SUBROUTINE HDF5_SAVE_DATA_INT
+
    SUBROUTINE HDF5_SAVE_RESULTS (NSEC)
 
       !Prints the output every "NSEC" minutes
       use HDF5_VARIABLES
-      use STEPPER
-      use ADVECTION, ONLY: UXN,UZN
-      use THERMODYNAMIC_VAR, ONLY: THETA, RV, RL, RI, DPB, SAT
-      use ENVIRONMENT, ONLY: RHO
-      use GRID
-      use SD_VARIABLES, ONLY: N_sd, X, R
+      use STEPPER          , only: TIME, DT
+      use ADVECTION        , only: UXN,UZN
+      use THERMODYNAMIC_VAR, only: THETA, RV, RL, RI, DPB, SAT
+      use ENVIRONMENT      , only: RHO
+      use SD_VARIABLES     , only: X, R
       use IO_PARAMETERS
       IMPLICIT NONE
 
-      REAL*8  :: NSEC
-      INTEGER :: IT,PERIOD
-      CHARACTER(100) :: FILE_PATH
-      logical, save  :: first_call = .true.
-      !Debugging only
-      integer(HSIZE_T) :: current_dims(3), max_dims(3)
+      REAL*8, intent(in) :: NSEC
+      INTEGER            :: iteration, period, time_offset
+      CHARACTER(100)     :: file_path
+      logical, save      :: first_call = .true.
 
-      FILE_PATH = TRIM(output_folder)//'/'//TRIM(output_file)
+      iteration = NINT( TIME / DT ) 
+      period    = NINT( NSEC / DT )
 
-      IT = NINT( TIME/DT )
-      PERIOD = NINT( NSEC/DT )
+      if (MOD(iteration, period) /= 0) return
 
-      IF ( MOD(IT,PERIOD).EQ.0 ) THEN
+      time_offset = iteration / period
 
-         call h5open_f(error) !Open fortran HDF5 interface
-         call h5fopen_f(file_path,H5F_ACC_RDWR_F,file_id,error) !Open file
+      file_path = TRIM(output_folder)//'/'//TRIM(output_file)
 
-         ! Save RHO profile only once
-         if (first_call) then
-               !Open RHO dataset
-               call h5dopen_f(file_id, 'RHO', dset_id, error)
-               call h5dget_space_f(dset_id, dspace_id, error)
-               !Select subset
-               call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, int([0],8), int([NZ],8), error)
-               !Create memory data space
-               call h5screate_simple_f(1, int([NZ],8), memspace, error)
-               !Write subset to dataset
-               call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, RHO, int([NZ],8), error, memspace, dspace_id)
-               !Close dataset
-               call h5dclose_f(dset_id, error)
-               !Close memspace
-               call h5sclose_f(memspace, error)
-               first_call = .false.
-         end if
+      call h5open_f(error) !Open fortran HDF5 interface
+      call h5fopen_f(file_path,H5F_ACC_RDWR_F,file_id,error) !Open file
 
-         !======================================= NX by NZ ==================================================
-         
-         count = int([NX, NZ, 1],8)
-         offset = [0,0,IT/PERIOD]
-         dimsm = count
-         !Create memory data space
-         call h5screate_simple_f(rnk, dimsm, memspace, error)
-         !Open THETA dataset
-         call h5dopen_f(file_id, 'THETA', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, THETA, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
+      ! Save RHO profile only once
+      if (first_call) then
+            call HDF5_SAVE_DATA_DOUBLE(RHO ,'RHO')
+            first_call = .false.
+      end if
 
-         !Open RV dataset
-         call h5dopen_f(file_id, 'RV', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, RV, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
+      call HDF5_SAVE_DATA_DOUBLE(TIME ,'TIME' ,time_offset)
 
-         !Open RL dataset
-         call h5dopen_f(file_id, 'RL', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, RL, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
+      call HDF5_SAVE_DATA_DOUBLE(THETA ,'THETA',time_offset)
+      call HDF5_SAVE_DATA_DOUBLE(RV    ,'RV'   ,time_offset)
+      call HDF5_SAVE_DATA_DOUBLE(RL    ,'RL'   ,time_offset)
+      call HDF5_SAVE_DATA_DOUBLE(RI    ,'RI'   ,time_offset)
+      call HDF5_SAVE_DATA_DOUBLE(SAT   ,'SAT'  ,time_offset)
+      call HDF5_SAVE_DATA_INT   (DPB   ,'DPB'  ,time_offset)
 
-         !Open RI dataset
-         call h5dopen_f(file_id, 'RI', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, RI, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
+      call HDF5_SAVE_DATA_DOUBLE(UXN   ,'UXN'  ,time_offset)
+      call HDF5_SAVE_DATA_DOUBLE(UZN   ,'UZN'  ,time_offset)
 
-         !Open DPB dataset
-         call h5dopen_f(file_id, 'DPB', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, DPB, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
+      call HDF5_SAVE_DATA_DOUBLE(  X   ,'X_SD' ,time_offset)
+      call HDF5_SAVE_DATA_DOUBLE(R(2,:),'R_SD' ,time_offset)
 
-         !Open SAT dataset
-         call h5dopen_f(file_id, 'SAT', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, SAT, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
-
-         !====================================== NXP by NZP =================================================
-         count = int([NXP, NZP, 1],8)
-         dimsm = count
-         !Create memory data space
-         call h5screate_simple_f(rnk, dimsm, memspace, error)
-
-         !Open UXN dataset
-         call h5dopen_f(file_id, 'UXN', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         call h5sget_simple_extent_dims_f(dspace_id, current_dims, max_dims, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, UXN, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
-
-         !Open UZN dataset
-         call h5dopen_f(file_id, 'UZN', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         call h5sget_simple_extent_dims_f(dspace_id, current_dims, max_dims, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, UZN, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
-         
-         !====================================== N_sd by 2 ===================================================
-
-         count = int([N_sd, 2, 1],8)
-         dimsm = count
-         !Create memory data space
-         call h5screate_simple_f(rnk, dimsm, memspace, error)
-
-         !Open X_SD dataset
-         call h5dopen_f(file_id, 'X_SD', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, count, error, stride, block)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, X, dimsm, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
-
-         !====================================== N_sd by 1 ===================================================
-         count2 = int([N_sd, 1],8)
-         offset2 = [0,IT/PERIOD]
-         dimsm2 = count2
-         !Create memory data space
-         call h5screate_simple_f(2, dimsm2, memspace, error)
-
-         !Open R_SD dataset
-         call h5dopen_f(file_id, 'R_SD', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset2, count2, error, stride2, block2)
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, R(2,:), dimsm2, error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
-
-         !====================================== NT by 1 ===================================================
-
-         !Create memory data space
-         call h5screate_simple_f(1, int([1],8), memspace, error)
-
-         !Open TIME dataset
-         call h5dopen_f(file_id, 'TIME', dset_id, error)
-         call h5dget_space_f(dset_id, dspace_id, error)
-         !Select subset
-         call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, int([IT/PERIOD],8), int([1],8), error, int([1],8), int([1],8))
-         !Write subset to dataset
-         call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, time, int([1],8), error, memspace, dspace_id)
-         !Close dataset
-         call h5dclose_f(dset_id, error)
-         !Close everything opened
-         call h5sclose_f(dspace_id, error)
-         call h5sclose_f(memspace , error)
-         call h5fclose_f(file_id  , error)
-         call h5close_f(error)
-      END IF
+      call h5fclose_f(file_id  , error)
+      call h5close_f(error)
+   
    END SUBROUTINE HDF5_SAVE_RESULTS
 
    SUBROUTINE HDF5_READ_VELOCITIES(filename)
+
       use HDF5_VARIABLES
       use STEPPER
       use GRID

@@ -1579,8 +1579,9 @@ contains
       
       !Obtain turbulent fluxes
       if (ADVECT) then
-      call GET_TURB_FLUXES_CIC(u_prime, Q_k, FRV_TURB_DT)
-      call GET_TURB_FLUXES_CIC(u_prime, TH_k, FTH_TURB_DT) 
+         call GET_TURB_FLUXES_CIC(u_prime, Q_k, FRV_TURB_DT)
+         call GET_TURB_FLUXES_CIC(u_prime, TH_k, FTH_TURB_DT) 
+      end if
       
       !Updating potential temperature and vapor mixing ratio
       do j = 1,NZ

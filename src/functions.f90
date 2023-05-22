@@ -544,7 +544,7 @@ contains
       !cumulative distribution function (CDF_TF).
 
       use FUNCTIONS, only: interpol, random_integer
-
+      
 
       real*8, allocatable, intent(out) :: TF(:)
       integer            , intent(in ) :: N
@@ -563,7 +563,7 @@ contains
 
       current_size = N - N_insol
       TF(1:current_size) = -40.D0 + 273.15D0
-
+      
       do while (current_size < N)
          call random_integer(1, current_size, k)
          call RANDOM_NUMBER(R)
@@ -572,7 +572,7 @@ contains
          TF(current_size+1) = TF(k)
          TF(k) = R
          current_size = current_size + 1
-         end do
+      end do
 
    end subroutine SAMPLE_TFREEZING
 
@@ -1485,7 +1485,7 @@ contains
 
       integer   :: k
       real*8    :: u_local(2)
-      
+
       if (.NOT.ADVECT) return
       
       !call tictoc(time_unit='ms')

@@ -88,7 +88,7 @@ contains
    end function PRETTY_TIME
 
    subroutine BOX_MULLER (G1,G2)
-
+      !Samples up to two standard gaussian variables
       implicit none
 
       real*8 :: W, G1, X1, X2, RAND(2)
@@ -108,6 +108,20 @@ contains
       if (present(G2)) G2 = X2*W
 
    end subroutine BOX_MULLER
+
+   subroutine random_integer(min, max, r)
+
+      ! Samples a random integer in the interval [min, max]
+      ! with uniform distribution
+
+      integer, intent(in)  :: min, max
+      integer, intent(out) :: r
+      real*8 :: r_float
+   
+      call RANDOM_NUMBER(r_float)
+      r = floor(r_float*(max - min + 1) + min)
+   
+   end subroutine
 
    subroutine SAMPLE_GAUSSIAN_SCALAR(X,sigma,mu)
       implicit none
@@ -250,25 +264,6 @@ contains
 
       EX = (P/P00)**(R_D/CP_D)
    end function EXNER
-
-   subroutine sort(x)
-      real*8 :: x(:)
-      real*8 :: a
-      integer :: i, check
-
-      check = 1
-      do while (check .ne. 0)
-         check = 0
-         do i = 1, size(x)-1
-               if (x(i) > x(i+1)) then
-                  a = x(i+1)
-                  x(i+1) = x(i)
-                  x(i) = a
-                  check = 1
-               end if
-         end do
-      end do
-   end subroutine sort
 
    function PERN(p,NN) result(pp)
       integer   :: p, pp, NN
@@ -542,39 +537,43 @@ contains
    end subroutine SET_CDF_TFREEZING
 
 
-   subroutine SAMPLE_TFREEZING (TF)
+   subroutine SAMPLE_TFREEZING (TF, N)
 
       !Samples "N" values of freezing temperatures (stored in TF(:)) using
       !the inverse transform sampling method. It uses the pre-calculated
       !cumulative distribution function (CDF_TF).
 
-      real*8  :: TF(:), P
-      real*8  :: RAND(1),DELTA
-      integer :: M
-      integer :: I,J,k
+      use FUNCTIONS, only: interpol, random_integer
+      
 
+      real*8, allocatable, intent(out) :: TF(:)
+      integer            , intent(in ) :: N
+
+      real*8  :: R, P
+      integer :: k, N_insol
+      integer :: current_size
+
+      print'(A)', 'Randomizing Freezing temperatures. This might take a while...'
       call SET_CDF_TFREEZING
       call INIT_RANDOM_SEED
 
       P = 0.1 !Percentage of SDs with rd_insol
-      k = ceiling(size(TF)*P)
+      N_insol = ceiling(P*N)
+      allocate(TF(N))
 
-      M = SIZE( CDF_TF, DIM = 2 ) - 1
+      current_size = N - N_insol
+      TF(1:current_size) = -40.D0 + 273.15D0
+      
+      do while (current_size < N)
+         call random_integer(1, current_size, k)
+         call RANDOM_NUMBER(R)
+         R = interpol(CDF_TF(1,:), CDF_TF(0,:), R)
 
-      do I = 1,size(TF)
-         call RANDOM_NUMBER(RAND)
-         J = 0
-         do while (.NOT.((RAND(1).GE.CDF_TF(1,J)).AND.(RAND(1).LT.CDF_TF(1,J+1))))
-            J = J + 1
-         end do
-         if (I > k) then
-            TF(I) = -40.D0 + 273.15D0
-         else
-            !Evaluates the temperature corresponding to CDF_TF = RAND(1) by linear interpolation
-            DELTA = ( RAND(1) - CDF_TF(1,J) )/( CDF_TF(1,J+1) - CDF_TF(1,J) )
-            TF(I) = CDF_TF(0,J) + ( CDF_TF(0,J+1) - CDF_TF(0,J) )*DELTA
-         end if
+         TF(current_size+1) = TF(k)
+         TF(k) = R
+         current_size = current_size + 1
       end do
+
    end subroutine SAMPLE_TFREEZING
 
    subroutine INIT_RANDOM_SEED
@@ -654,17 +653,19 @@ contains
       use SD_VARIABLES, only: N_sd, X
       use CUSTOM_TYPES
       use OMP_LIB
+      use STEPPER, only: TIME
       !Debugging only
       use THERMODYNAMIC_VAR, only: DPB
       !use SD_VARIABLES, only: SD_box
 
-      real*8, intent(in)     :: LAGR_SCALAR(N_sd)
+      real*8, intent(in)  :: LAGR_SCALAR(N_sd)
       real*8                 :: SCALAR_FIELD(NXP,NZP)
       real*8                 :: NN, r(2)
-      integer  , allocatable :: srd_particles(:)
-      real*8,    allocatable :: bw(:)
+      integer,   allocatable :: srd_particles(:)
+      real*8 ,   allocatable :: bw(:)
 
       integer   :: i, j, k, p, q, m, n, length
+      character(len=30) :: DPB_file_name
 
       !$OMP parallel do private(j, k, p, q, m, n, length, srd_particles, r, bw, NN)
       do i = 1,NXP
@@ -709,13 +710,14 @@ contains
             NN = sum(bw)
 
             if (NN == 0.D0) then
-               print*, "Surrounding particles:", size(srd_particles)
-               open(unit=42,file='last_DPB.dat')
+               print'(A,I0,A,I0,A)', "No surrounding particles at node (",i,',',j,")" 
+               write(DPB_file_name,'(A,F0.2,A)') 'DPB_TIME=',TIME,'.dat'
+               open(unit=42,file=DPB_file_name)
                do p = 1,size(DPB,2)
                   write(42,*) DPB(:,p)
                end do
                close(42)
-               stop "CIC deu merda."
+               NN = 1.D0
             end if
 
             SCALAR_FIELD(i,j) = 0.D0
@@ -950,9 +952,8 @@ contains
       allocate(R_dry(N_sd), R_crit(N_sd))
       allocate(R(2,N_sd))
       allocate(xi(N_sd), S_crit(N_sd))
-      allocate(Activated(N_sd), Frozen(N_sd))
+      allocate(Activated(N_sd))
       allocate(phase_change(N_sd))
-      allocate(T_Freeze(N_sd))
       allocate(Q_k(N_sd), TH_k(N_sd))
       allocate(u_prime(N_sd,2),u_prime_old(N_sd,2))
       allocate(Sk_log(N_sd))
@@ -970,10 +971,13 @@ contains
       end do
       R(2,:) = WET_RADIUS(R_dry)
       R(1,:) = R(2,:)
-      k = NINT(N_sd*init_ice_frac)
-      call SAMPLE_TFREEZING(T_Freeze)
-      Frozen(1:k)      = .true.
-      Frozen(k+1:N_sd) = .false.
+
+      if (im_freezing) then
+         call SAMPLE_TFREEZING(T_Freeze, N_sd)
+      end if
+
+      !Initially frozen droplets
+      call INIT_FROZEN_ARRAY(Frozen, N_sd, init_ice_frac)
 
       !Initialize velocity fluctuations
       u_prime     = 0.D0
@@ -1010,6 +1014,32 @@ contains
          end if
       end if
    end subroutine FREEZE
+
+   subroutine INIT_FROZEN_ARRAY(F_ARRAY, N, P)
+
+      use FUNCTIONS, only: random_integer
+      
+      logical, allocatable, intent(out) :: F_ARRAY(:)
+      integer             , intent(in ) :: N
+      real*8              , intent(in ) :: P
+
+      integer :: current_size, k
+
+      current_size = floor( (1-P) * N )
+      allocate(F_ARRAY(N))
+
+      F_ARRAY(1:current_size) = .false.
+
+      do while (current_size < N)
+         call random_integer(1, current_size, k)
+
+         F_ARRAY(current_size+1) = F_ARRAY(k)
+         F_ARRAY(k) = .true.
+         current_size = current_size + 1
+      end do
+
+   end subroutine
+
 
    subroutine GROW_DROPLETS
       use CONSTANTS
@@ -1188,7 +1218,7 @@ contains
       use CIC_ROUTINES
       use FUNCTIONS
       use ADVECTION, only: UXN, UZN, C_zero, eps, stochastic_micro_phys
-      use STEPPER  , only: dt
+      use STEPPER  , only: DT_ADV
       use SD_VARIABLES, only: u_prime, u_prime_old, X, XP, N_sd
       !Debugging
       !use SD_VARIABLES, only: SD_box
@@ -1241,7 +1271,7 @@ contains
       
          !Advance particle to midpoint position
          XP(k,:) = X(k,:) !Save previous position
-         X (k,:) = XP(k,:) + 0.5*(u_local + u_prime(k,:))*dt
+         X (k,:) = XP(k,:) + 0.5*(u_local + u_prime(k,:))*DT_ADV
          
          !Apply boundary conditions - Periodic(sides) / Reflection(top and bottom)
          call PARTICLE_BC(X(k,:), LX, LZ)
@@ -1264,9 +1294,9 @@ contains
          call SAMPLE_GAUSSIAN(ksi,1.D0,0.D0)
          
          !Runge-Kutta of 2nd order to advance u_prime in time
-         Du_prime = (a + matmul(b,u_prime_old(k,:)))*dt + sqrt(c*dt)*ksi
+         Du_prime = (a + matmul(b,u_prime_old(k,:)))*DT_ADV + sqrt(c*DT_ADV)*ksi
          u_prime_old(k,:) = u_prime(k,:)
-         u_prime(k,:) = u_prime_old(k,:) + Du_prime + 0.5*matmul(b,Du_prime)*dt
+         u_prime(k,:) = u_prime_old(k,:) + Du_prime + 0.5*matmul(b,Du_prime)*DT_ADV
          
          ! if ( any(isnan(u_prime(k,:))) ) then
          !    print*,'u_prime_old = ', u_prime_old(k,:)
@@ -1443,9 +1473,9 @@ contains
    END SUBROUTINE EVAL_KINEMATIC_PARTICLE_PRESSURE_POS
 
    subroutine ADVECTION_SD
-      use STEPPER     , only: DT
+      use STEPPER     , only: DT_ADV
       use GRID        , only: LX , LZ!, cell_nodes
-      use ADVECTION   , only: UXN, UZN
+      use ADVECTION   , only: UXN, UZN, ADVECT
       use CIC_ROUTINES, only: CIC_SCALAR_AT_PARTICLE, CIC_SCALAR_AT_PARTICLE_2
       use SD_VARIABLES, only: N_sd, u_prime, u_prime_old, X, XP
       use OMP_LIB
@@ -1455,6 +1485,8 @@ contains
 
       integer   :: k
       real*8    :: u_local(2)
+
+      if (.NOT.ADVECT) return
       
       !call tictoc(time_unit='ms')
       !Update velocity fluctuations and move particles to midpoint
@@ -1466,36 +1498,16 @@ contains
          u_local(1) = CIC_SCALAR_AT_PARTICLE(UXN,k) + 0.5*(u_prime_old(k,1) + u_prime(k,1))
          u_local(2) = CIC_SCALAR_AT_PARTICLE(UZN,k) + 0.5*(u_prime_old(k,2) + u_prime(k,2))
 
-         ! -------------------- EXPERIMENT ------------------
-         ! u_local(1) = 0.D0
-         ! i = SD_box(k)%i; j = SD_box(k)%j
-         ! do m = i,i+1
-         !    do n = j,j+1
-         !       u_local(1) = u_local(1) + UXN(m,n) * bilinear_weight(X(k,:) - cell_nodes(m,n)%pos)
-         !    end do
-         ! end do
-         ! u_local(2) = 0.D0
-         ! i = SD_box(k)%i; j = SD_box(k)%j
-         ! do m = i,i+1
-         !    do n = j,j+1
-         !       u_local(2) = u_local(2) + UZN(m,n) * bilinear_weight(X(k,:) - cell_nodes(m,n)%pos)
-         !    end do
-         ! end do
-
-         ! u_local(1) = u_local(1) + 0.5*(u_prime_old(k,1) + u_prime(k,1))
-         ! u_local(2) = u_local(2) + 0.5*(u_prime_old(k,2) + u_prime(k,2))
-         ! -------------------- EXPERIMENT ------------------
-         
-         if (isnan(u_local(1)).or.isnan(u_local(2))) then
-            print*,'u_prime_old: ', u_prime_old(k,:)
-            print*,'u_prime    : ', u_prime    (k,:)
-            print*,'CIC_TERM   :' , CIC_SCALAR_AT_PARTICLE(UXN,k), CIC_SCALAR_AT_PARTICLE(UZN,k)
-            stop 'NAN'
-         end if  
+         ! if (isnan(u_local(1)).or.isnan(u_local(2))) then
+         !    print*,'u_prime_old: ', u_prime_old(k,:)
+         !    print*,'u_prime    : ', u_prime    (k,:)
+         !    print*,'CIC_TERM   :' , CIC_SCALAR_AT_PARTICLE(UXN,k), CIC_SCALAR_AT_PARTICLE(UZN,k)
+         !    stop 'NAN'
+         ! end if  
 
          !Calculate the provisional position (without compressibility correction)
          !XP(k,:) = X(k,:) !Debugging
-         X(k,:) = XP(k,:) + u_local * dt
+         X(k,:) = XP(k,:) + u_local * DT_ADV
       
          ! Apply boundary conditions - Periodic(sides) / Reflection(top and bottom)
          call PARTICLE_BC(X(k,:), LX, LZ, u_prime(k,:))         
@@ -1509,7 +1521,6 @@ contains
       CALL POSITION_CORRECTION(X)
       !call tictoc(section_name="Pos correction",finish=.true.)
       !call system('clear; cat tictoc.txt')
-      !stop 'fu'
    end subroutine ADVECTION_SD
 
 end module SD_FUNCTIONS
@@ -1527,12 +1538,16 @@ contains
       use SD_VARIABLES     , only: R, xi, N_sd, Frozen, phase_change, R_dry, SD_box
       use SD_VARIABLES     , only: Q_k, TH_k, u_prime
       use THERMODYNAMIC_VAR, only: RL, RI, RV, THETA, TEMP
+      use ADVECTION        , only: ADVECT
       use OMP_LIB
 
 
       integer   :: k, i, j
       real*8    :: DELTA_L(NX,NZ), DELTA_I(NX,NZ), DELTA_F(NX,NZ)
-      real*8    :: FTH_TURB_DT(NX,NZ), FRV_TURB_DT(NX,NZ)
+      real*8, allocatable, save    :: FTH_TURB_DT(:,:), FRV_TURB_DT(:,:)
+
+     
+      if (.NOT.allocated(FTH_TURB_DT)) allocate(FTH_TURB_DT(NX,NZ), FRV_TURB_DT(NX,NZ))
 
       DELTA_L = 0.D0
       DELTA_I = 0.D0
@@ -1563,8 +1578,10 @@ contains
 
       
       !Obtain turbulent fluxes
-      call GET_TURB_FLUXES_CIC(u_prime, Q_k, FRV_TURB_DT)
-      call GET_TURB_FLUXES_CIC(u_prime, TH_k, FTH_TURB_DT) 
+      if (ADVECT) then
+         call GET_TURB_FLUXES_CIC(u_prime, Q_k, FRV_TURB_DT)
+         call GET_TURB_FLUXES_CIC(u_prime, TH_k, FTH_TURB_DT) 
+      end if
       
       !Updating potential temperature and vapor mixing ratio
       do j = 1,NZ
@@ -1817,6 +1834,7 @@ contains
       use ADVECTION
       use GRID
       use IO_PARAMETERS, only: input_file
+      use HDF5_functions, only: HDF5_READ_PSI
 
       integer         :: I,K
       logical, save   :: first_call = .true.

@@ -1,0 +1,6 @@
+{
+   "fortran.linter.includePaths": [
+      "/usr/include",
+      "/home/daniel/Documents/Cloud Models/Kinematic SD/src/obj"
+   ]
+}

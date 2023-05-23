@@ -160,6 +160,7 @@ $RECYCLE.BIN/
 *.pdf
 *.tst
 *.out
+*.txt
 
 # Matlab scripts
 *.m
@@ -172,12 +173,11 @@ $RECYCLE.BIN/
 #Folders
 Results/
 Input/
+mfiles/
 
 #Specific files
-run_sims.sh
-*job*
-*funk*
-*sync*sh
+run*sh
+
 
 #Exceptions
 !eps_profile.dat

@@ -327,7 +327,6 @@ contains
       use ADVECTION, only: PSI
 
       implicit NONE
-     
 
       character(100), intent(in) :: filename
       integer, save :: call_count = 0, offset_max

@@ -2025,37 +2025,53 @@ contains
 
    end subroutine ADVECTION_MPDATA
 
-   subroutine INIT_SG_PARAMETERS
-      use ADVECTION    , only: eps, omega, L
-      use GRID         , only: NZP
-      use IO_PARAMETERS, only: eps_file_name
+   function INTERMITTENCY_FACTOR(z, z_inv, DZ) result(gamma)
 
-      integer           :: eof      !End-of-file indicator
-      real*8            :: eps_read !Value read form file
-      real*8, parameter :: C = 1.D0 !Proportionality constant in k ~ (eps*L)^(2/3)
+      real*8, intent(in) :: z, z_inv, DZ
+      real*8             :: gamma
+
+      gamma = 0.5 - 0.5 * erf( (z - z_inv) / (sqrt(2.D0)*DZ) )
+
+   end function
+
+   subroutine INIT_SG_PARAMETERS
+      use ADVECTION    , only: z_eps, eps, omega, L
+      use GRID         , only: NZP, DZ
+      use IO_PARAMETERS, only: eps_file_name
+      use ENVIRONMENT  , only: Z_INV
+      use STEPPER      , only: DT_ADV
+
+      integer           :: i
+      integer           :: eof               !End-of-file indicator
+      real*8            :: z_read, eps_read  !Values read form file
+      real*8, parameter :: C = 1.D0          !Proportionality constant in k ~ (eps*L)^(2/3)
+      real*8            :: omega_laminar, gamma
 
       !Read eps from data file
-      allocate(eps(0))
+      allocate(z_eps(0), eps(0))
       open(unit=1,file=eps_file_name, status='old')
-      read(unit=1,fmt=*,iostat=eof) eps_read
+      read(unit=1,fmt=*,iostat=eof) z_read, eps_read
       do while (eof==0)
-         eps = [eps, eps_read]
-         read(unit=1,fmt=*,iostat=eof) eps_read
+         z_eps = [z_eps, z_read  ]
+         eps   = [eps  , eps_read]
+         read(unit=1,fmt=*,iostat=eof) z_read, eps_read
       end do
       close(1)
 
       !Size check
-      if (size(eps) /= NZP) then
+      if (size(eps) < NZP) then
          call system('clear')
-         print*, "TKE dissipation rate file has a number of points incompatible with the grid."
-         print*, "Number of vertical levels on the dual grid: ", NZP
-         print*, "Number of vertical levels on the eps file : ", size(eps)
+         print*, "WARNING: Resolution for TKE profile is too low! Check input file"
          stop
       end if
 
-      !Calculate omega for each height
-      allocate(omega(NZP))
-      omega = (1/C)*(eps/L**2)**(1.D0/3)
+      !Calculate omega for each height (lookup table)
+      allocate(omega(size(eps)))
+      omega_laminar = 1 / DT_ADV
+      do i = 1,size(omega)
+         gamma = INTERMITTENCY_FACTOR(z_eps(i), Z_INV, DZ)
+         omega(i) = (1/C)*(eps(i)/L**2)**(1.D0/3) * gamma + (1 - gamma) * omega_laminar
+      end do
    end subroutine INIT_SG_PARAMETERS
 end module ADV_FUNCTIONS
 

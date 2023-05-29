@@ -6,14 +6,10 @@ PROGRAM MAIN
    use BOX
    use CIC_ROUTINES
    use HDF5_functions
-   !For Optimization and debugging only
-   use profiler
    
    IMPLICIT NONE
 
    integer :: i
-   !Debugging
-   logical :: acabou
 
    !Initialization -----------------------------------------------------
    TIME = 0.D0
@@ -32,30 +28,21 @@ PROGRAM MAIN
    CALL HDF5_SAVE_RESULTS(OUT_PER)
    call progress_bar(TIME, T_MAX)
    
-   call tictoc(time_unit='ms'); acabou = .false.
+   
    DO i = 2,N_STEPS
-      acabou = (i == N_STEPS)
       TIME = TIME + DT
       CALL CHECK_ADV
-      !call tictoc(section_name='CHECK_ADV')
       CALL ADVECTION_MPDATA   ! Advects thermodynamic fields using Euler scheme
-      !call tictoc(section_name='MPDATA')
       CALL GET_VELOCITIES     ! Obtains velocity field from stream function file
-      !call tictoc(section_name='GET_VEL')
       CALL ADVECTION_SD       ! Transport of super-droplets by the flow
-      !call tictoc(section_name='ADV_DROPLETS')
       CALL GROW_DROPLETS      ! Solves growth equations
-      !call tictoc(section_name='GROWTH_EQ')
       CALL UPDATE_BOXES       ! Updates grid boxes mean properties after condensation
-      !call tictoc(section_name='UPDATE_BOXES')
       CALL SAT_FIELD          ! Diagnostic only
-      !call tictoc(section_name='SAT_FIELD')
       call HDF5_SAVE_RESULTS(OUT_PER)
-      !call tictoc(section_name='SAVE_RES',finish=acabou)
 
       if (mod(nint(TIME/DT),10) == 0) call progress_bar(TIME, T_MAX)
    END DO
-   !call system('cat tictoc.txt')
+
 END PROGRAM MAIN
 
 SUBROUTINE PRINT_REMARKS

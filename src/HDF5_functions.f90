@@ -65,7 +65,7 @@ contains
       call h5dget_space_f(dset_id, dspace_id, error)
       !Select subset
       call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, dcount, error, stride, block_size)
-      !Write subset to dataset (can't do without the "select rank" statement because of the shitty h5dwrite interface)
+      !Write subset to dataset (can't do without the "select rank" statement because of the archaic h5dwrite interface)
       select rank(data)
          rank(0)
             call h5dwrite_f(dset_id, H5T_NATIVE_DOUBLE, data, dcount, error, memspace, dspace_id)
@@ -118,7 +118,7 @@ contains
       call h5dget_space_f(dset_id, dspace_id, error)
       !Select subset
       call h5sselect_hyperslab_f(dspace_id, H5S_SELECT_SET_F, offset, dcount, error, stride, block_size)
-      !Write subset to dataset (can't do without the "select rank" statement because of the shitty h5dwrite interface)
+      !Write subset to dataset (can't do without the "select rank" statement because of the archaic h5dwrite interface)
       select rank(data)
          rank(0)
             call h5dwrite_f(dset_id, H5T_NATIVE_INTEGER, data, dcount, error, memspace, dspace_id)

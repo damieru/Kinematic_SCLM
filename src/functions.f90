@@ -294,10 +294,6 @@ contains
          stop "DIV_SYM_TENSOR_2D: Input matrices must have the same size."
       end if
 
-      if (any(isnan(Axx)).or.any(isnan(Axy)).or.any(isnan(Ayy))) then
-         stop "DIV_SYM_TENSOR_2D: Bad input."
-      end if
-
       !Divergence calculation
       do i = 1,N
          do j = 1,M
@@ -307,46 +303,12 @@ contains
             if (j == 1) then !Lower boundary
                DDYx = (-3*Axy(i,j) + 4*Axy(i,j+1) - Axy(i,j+2))/(2*DY)
                DDYy = (-3*Ayy(i,j) + 4*Ayy(i,j+1) - Ayy(i,j+2))/(2*DY)
-               if (isnan(DDYx).or.isnan(DDYy)) then 
-                  print'(A,I3.3,I3.3)',"(i,j) = ", i, j
-                  print*,"Axy(i,j)   = ", Axy(i,j  )
-                  print*,"Axy(i,j+1) = ", Axy(i,j+1)
-                  print*,"Axy(i,j+2) = ", Axy(i,j+2)
-                  print*,"DDYx       = ", DDYx
-                  print*,"Ayy(i,j)   = ", Ayy(i,j  )
-                  print*,"Ayy(i,j+1) = ", Ayy(i,j+1)
-                  print*,"Ayy(i,j+2) = ", Ayy(i,j+2)
-                  print*,"DDYy       = ", DDyy
-                  stop "Div bad."
-               end if
             elseif (j == M) then !Upper boundary
                DDYx = ( 3*Axy(i,j) - 4*Axy(i,j-1) + Axy(i,j-2))/(2*DY)
                DDYy = ( 3*Ayy(i,j) - 4*Ayy(i,j-1) + Ayy(i,j-2))/(2*DY)
-               if (isnan(DDYx).or.isnan(DDYy)) then 
-                  print'(A,I3.3,I3.3)',"(i,j) = ", i, j
-                  print*,"Axy(i,j)   = ", Axy(i,j  )
-                  print*,"Axy(i,j-1) = ", Axy(i,j-1)
-                  print*,"Axy(i,j-2) = ", Axy(i,j-2)
-                  print*,"DDYx       = ", DDYx
-                  print*,"Ayy(i,j)   = ", Ayy(i,j  )
-                  print*,"Ayy(i,j-1) = ", Ayy(i,j-1)
-                  print*,"Ayy(i,j-2) = ", Ayy(i,j-2)
-                  print*,"DDYy       = ", DDyy
-                  stop "Div bad."
-               end if
             else
                DDYx = (Axy(i,j+1) - Axy(i,j-1))/(2*DY)
                DDYy = (Ayy(i,j+1) - Ayy(i,j-1))/(2*DY)
-               if (isnan(DDYx).or.isnan(DDYy)) then 
-                  print'(A,I3.3,I3.3)',"(i,j) = ", i, j
-                  print*,"Axy(i,j-1) = ", Axy(i,j-1)
-                  print*,"Axy(i,j+1) = ", Axy(i,j+1)
-                  print*,"DDYx       = ", DDYx
-                  print*,"Ayy(i,j-1) = ", Ayy(i,j-1)
-                  print*,"Ayy(i,j+1) = ", Ayy(i,j+1)
-                  print*,"DDYy       = ", DDyy
-                  stop "Div bad."
-               end if
             end if
             divA_x(i,j) = DDXx + DDYx
             divA_y(i,j) = DDXy + DDYy
@@ -358,8 +320,6 @@ contains
       real*8, intent(in ) :: DX, DY, Ux(:,:), Uy(:,:)
       real*8, intent(out) :: grad(size(Ux,1),size(Ux,2),2,2)
       integer             :: i, j, N, M
-      !Debugging only
-      integer   :: k,p
 
       !Size check
       if (size(Ux,1)==size(Uy,1).and.size(Ux,2)==size(Uy,2)) then
@@ -385,18 +345,6 @@ contains
                grad(i,j,2,1) = (Ux(i,j+1) - Ux(i,j-1))/(2*DY)
                grad(i,j,2,2) = (Uy(i,j+1) - Uy(i,j-1))/(2*DY)
             end if
-
-            !Debugging only
-            do k = 1,2
-               do p = 1,2
-                  if (1/grad(i,j,k,p)==0) then
-                     print*, 'Grad is bad.'
-                     print*, '(i,j,k,p) = ', i,j,k,p
-                     print*, "CONTINUE FROM HERE"
-                     stop
-                  end if
-               end do
-            end do
 
          end do
       end do
@@ -1168,9 +1116,6 @@ contains
       do i = 1,2
          do j = 1,2
             b(i,j) = - CIC_SCALAR_AT_PARTICLE(grad(:,:,j,i), k)
-            if (isnan(b(i,j))) then 
-               stop 'b is bad'
-            end if
          end do
       end do
 
@@ -1220,9 +1165,6 @@ contains
       use ADVECTION, only: UXN, UZN, C_zero, eps, stochastic_micro_phys
       use STEPPER  , only: DT_ADV
       use SD_VARIABLES, only: u_prime, u_prime_old, X, XP, N_sd
-      !Debugging
-      !use SD_VARIABLES, only: SD_box
-      !use THERMODYNAMIC_VAR, only: DPB
       use omp_lib
 
       real*8    :: uu(NXP,NZP), uw(NXP,NZP), ww(NXP,NZP)
@@ -1245,23 +1187,11 @@ contains
       uw = CIC_SCALAR_AT_NODES(u_prime(:,1)*u_prime(:,2))
       ww = CIC_SCALAR_AT_NODES(u_prime(:,2)*u_prime(:,2))
 
-      if (any(isnan(uu)).or.any(isnan(uw)).or.any(isnan(ww))) then
-         stop "UPDATE_U_PRIME: Bad Reynolds tensors."
-      end if
       !Calculate the divergence of <u'u'>
       call DIV_SYM_TENSOR_2D(DX,DZ,uu,uw,ww,div_uu_x,div_uu_z)
 
       !Calculate the gradient of <u> at the nodes
       call GRAD_VECTOR_2D(DX,DZ,UXN,UZN,grad)
-      if (any(1/grad==0)) then
-         print*,'grad is shit. Let''s check the velocity'
-         if (any(1/UXN==0).or.any(1/UZN==0)) then
-            print*,"Velocity is bad"
-         else
-            print*,'Velocity is ok'
-         end if
-         stop
-      end if
 
       !!$OMP parallel do private(u_local, a, b, c, eps_local, ksi, Du_prime)
       do k = 1,N_sd
@@ -1297,20 +1227,6 @@ contains
          Du_prime = (a + matmul(b,u_prime_old(k,:)))*DT_ADV + sqrt(c*DT_ADV)*ksi
          u_prime_old(k,:) = u_prime(k,:)
          u_prime(k,:) = u_prime_old(k,:) + Du_prime + 0.5*matmul(b,Du_prime)*DT_ADV
-         
-         ! if ( any(isnan(u_prime(k,:))) ) then
-         !    print*,'u_prime_old = ', u_prime_old(k,:)
-         !    print*,'Du_prime = ', Du_prime
-         !    print*,'a  = ', a
-         !    print*,'b  = ', b
-         !    print*,'c  = ', c
-         !    print*,'ksi= ', ksi
-         !    print*,'X  = ', X(k,:)
-         !    print*,'NaN div_x:', any(isnan(div_uu_x)) 
-         !    print*,'NaN div_z:', any(isnan(div_uu_z))
-         !    print*,'Drops in the box: ', DPB(SD_box(k)%i,SD_box(k)%j)
-         !    stop 'u_prime is shit'
-         ! end if
       end do
       !!$OMP end parallel do
     
@@ -1453,23 +1369,7 @@ contains
             END DO
          END DO
       end if
-      !********************************************************************
-      !check solution   
-      ! s1 = 0.d0
-      ! s2 = 0.d0
-      ! do i = 1,nx-2
-      !    do j = 2,nz-1
-      !       lapl = ( s(i+1,j) + s(i-1,j) - 2.d0*s(i,j) ) / dx**2 &
-      !          & + ( s(i,j+1) + s(i,j-1) - 2.d0*s(i,j) ) / dz**2      
-      !       s1 = s1 + ( lapl - f(i,j) )**2
-      !       s2 = s2 + f(i,j)**2
-      !    end do
-      ! end do
-   
-      ! >>> FOR DEBUGGING PURPOSES <<<
-      !write(*,*)
-      !write(*,*) "Check FFT-based Poisson solver - POSITIONS"
-      !write(*,*) "Relative error: ", sqrt(s1/s2)
+
    END SUBROUTINE EVAL_KINEMATIC_PARTICLE_PRESSURE_POS
 
    subroutine ADVECTION_SD
@@ -1479,48 +1379,35 @@ contains
       use CIC_ROUTINES, only: CIC_SCALAR_AT_PARTICLE, CIC_SCALAR_AT_PARTICLE_2
       use SD_VARIABLES, only: N_sd, u_prime, u_prime_old, X, XP
       use OMP_LIB
-      !Debugging
-      !use profiler
-      !use SD_VARIABLES, only: SD_box
 
       integer   :: k
       real*8    :: u_local(2)
 
       if (.NOT.ADVECT) return
       
-      !call tictoc(time_unit='ms')
       !Update velocity fluctuations and move particles to midpoint
       call UPDATE_U_PRIME 
-      !call tictoc(section_name="UUP")
+      
       !!$OMP parallel do private(u_local, i,j,UX_local,UZ_local) firstprivate(p_X)
       do k = 1,N_sd
          !Obtain local velocity at midpoint (u_prime is temporarily overriden to zero)
          u_local(1) = CIC_SCALAR_AT_PARTICLE(UXN,k) + 0.5*(u_prime_old(k,1) + u_prime(k,1))
          u_local(2) = CIC_SCALAR_AT_PARTICLE(UZN,k) + 0.5*(u_prime_old(k,2) + u_prime(k,2))
 
-         ! if (isnan(u_local(1)).or.isnan(u_local(2))) then
-         !    print*,'u_prime_old: ', u_prime_old(k,:)
-         !    print*,'u_prime    : ', u_prime    (k,:)
-         !    print*,'CIC_TERM   :' , CIC_SCALAR_AT_PARTICLE(UXN,k), CIC_SCALAR_AT_PARTICLE(UZN,k)
-         !    stop 'NAN'
-         ! end if  
-
          !Calculate the provisional position (without compressibility correction)
-         !XP(k,:) = X(k,:) !Debugging
          X(k,:) = XP(k,:) + u_local * DT_ADV
       
          ! Apply boundary conditions - Periodic(sides) / Reflection(top and bottom)
          call PARTICLE_BC(X(k,:), LX, LZ, u_prime(k,:))         
       end do
       !!$OMP end parallel do
-      !call tictoc(section_name="Move to mid-p")
+      
       !Update box-particle maps before applying position correction based on particle density
       call UPDATE_PARTICLE_BOX_MAP
-      !call tictoc(section_name="Update map")
+      
       !Correct droplet positions in order to mantain constant droplet density(second map update inside)
       CALL POSITION_CORRECTION(X)
-      !call tictoc(section_name="Pos correction",finish=.true.)
-      !call system('clear; cat tictoc.txt')
+      
    end subroutine ADVECTION_SD
 
 end module SD_FUNCTIONS
@@ -2046,57 +1933,3 @@ contains
       omega = (1/C)*(eps/L**2)**(1.D0/3)
    end subroutine INIT_SG_PARAMETERS
 end module ADV_FUNCTIONS
-
-module PERFORMANCE_ASSESSMENT
-   implicit none
-contains
-   subroutine tictoc(start, finish, section_name)
-
-      logical         , optional, intent(in) :: start, finish
-      character(len=*), optional, intent(in) :: section_name
-
-      integer           , save, allocatable :: times(:)
-      character(len=100), save, allocatable :: names(:)
-      logical           , save :: first_call = .true.
-      integer           , save :: rate
-      integer                  :: time_now, i
-      real*8, allocatable :: elapsed(:)
-
-      if (present(start).and.present(section_name)) then
-         stop "Arguments start and section_name cannot be present at the same time."
-      elseif (.not.present(start).and.(.not.present(section_name)) ) then
-         stop "One of these arguments must be present: start, section_name"
-      end if
-
-      if (first_call) then
-         call system_clock(count_rate=rate)
-         first_call = .false.
-      end if
-
-      if (present(start).and.start) then
-         if (allocated(times)) deallocate(times)
-         allocate(times(0)) 
-         if (allocated(names)) deallocate(names)
-         allocate(names(0))         
-      end if
-
-      call system_clock(time_now)
-      times = [times, time_now]
-      if (present(section_name)) names = [names, section_name]
-
-      if (finish) then
-
-         !Sanity check
-         if (.not.(size(times) == size(names) + 1)) then
-            stop "Something went wrong. The number of section names should be equal to the number of times minus 1"
-         end if
-
-         allocate(elapsed(size(names)))
-         do i = 1,size(names)
-            elapsed(i) = real(times(i+1)-times(i),8)/rate
-            print*, trim(names(i)),' took', elapsed(i), "seconds" 
-         end do
-      end if
-   end subroutine tictoc
-
-end module PERFORMANCE_ASSESSMENT

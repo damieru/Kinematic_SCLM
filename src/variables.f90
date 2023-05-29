@@ -180,6 +180,7 @@ MODULE ADVECTION
   !Characteristic eddy size and TKE dissipation rate
   real*8 :: L, eps_input
   real*8, allocatable :: eps(:) ! A value of eps for each height.
+  real*8, allocatable :: z_eps(:)
 
   !Stochastic boolean to determine which microphysics model to be used
   logical :: stochastic_micro_phys
@@ -189,6 +190,7 @@ MODULE ADVECTION
 
   !Relaxation frequency omega
   real*8, allocatable :: omega(:)
+  
 
   ! Tells if advected variables will be updated
   logical :: ADVECT

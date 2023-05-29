@@ -174,33 +174,46 @@ contains
       end if
    end function linspace
 
-   function interpol_scalar(coarse_x,coarse_y,fine_x) result(fine_y)
-      real*8, intent(in) :: coarse_x(:), coarse_y(:), fine_x
-      real*8 :: fine_y
-      integer :: j, N
+   function interpol_scalar(coarse_x,coarse_y,fine_x,linear_x) result(fine_y)
+      
+      real*8 , intent(in) :: coarse_x(:), coarse_y(:), fine_x
+      logical, intent(in) :: linear_x
+      real*8              :: fine_y
+      integer             :: j, N
+      real*8              :: DX
 
       if (size(coarse_x) /= size(coarse_y)) then
          print*, 'Coarse arrays must be of same length.'
+         print*, 'Size X', size(coarse_x)
+         print*, 'Size Y', size(coarse_y)
+         stop
       end if
 
       N = size(coarse_x)
-      j = 2
 
-      do while (coarse_x(j) <= fine_x .AND. j < N)
-         j = j + 1
-      end do
+      if (linear_x) then
+         DX = (coarse_x(N) - coarse_x(1))/(N-1)
+         j = min(ceiling((fine_x - coarse_x(1)) / DX) + 1, N)
+         j = max(j,2)
+      else 
+         j = 2
+         do while (coarse_x(j) <= fine_x .AND. j < N)
+            j = j + 1
+         end do
+      end if
 
       fine_y = (coarse_y(j) - coarse_y(j-1))/(coarse_x(j) - coarse_x(j-1)) &
                *(fine_x - coarse_x(j-1)) + coarse_y(j-1)
    end function interpol_scalar
 
-   function interpol_array(coarse_x,coarse_y,fine_x) result(fine_y)
-      real*8, intent(in) :: coarse_x(:), coarse_y(:), fine_x(:)
-      real*8  :: fine_y(size(fine_x))
-      integer :: i
+   function interpol_array(coarse_x, coarse_y, fine_x, linear_x) result(fine_y)
+      real*8 , intent(in) :: coarse_x(:), coarse_y(:), fine_x(:)
+      logical, intent(in) :: linear_x
+      real*8              :: fine_y(size(fine_x))
+      integer             :: i
 
       do i = 1,size(fine_x)
-         fine_y(i) = interpol_scalar(coarse_x,coarse_y,fine_x(i))
+         fine_y(i) = interpol_scalar(coarse_x,coarse_y,fine_x(i),linear_x)
       end do
 
    end function interpol_array
@@ -474,7 +487,7 @@ contains
             call random_number(R_DRY(i))
          end do
       end do
-      R_DRY = interpol(CDF_DR(2,:),CDF_DR(1,:),R_DRY)
+      R_DRY = interpol(CDF_DR(2,:),CDF_DR(1,:),R_DRY,linear_x = .false.)
       R_DRY = R_DRY*1D-6 !Conversion from micro meters to meters
    end subroutine SAMPLE_DRY
 
@@ -567,7 +580,7 @@ contains
       do while (current_size < N)
          call random_integer(1, current_size, k)
          call RANDOM_NUMBER(R)
-         R = interpol(CDF_TF(1,:), CDF_TF(0,:), R)
+         R = interpol(CDF_TF(1,:), CDF_TF(0,:), R, linear_x=.false.)
 
          TF(current_size+1) = TF(k)
          TF(k) = R
@@ -665,7 +678,10 @@ contains
       real*8 ,   allocatable :: bw(:)
 
       integer   :: i, j, k, p, q, m, n, length
+
+      !Debugging only
       character(len=30) :: DPB_file_name
+
 
       !$OMP parallel do private(j, k, p, q, m, n, length, srd_particles, r, bw, NN)
       do i = 1,NXP
@@ -728,6 +744,7 @@ contains
          end do
       end do
       !$OMP end parallel do
+
    end function CIC_SCALAR_AT_NODES
 
    function CIC_SCALAR_AT_PARTICLE(SCALAR_FIELD, k) result(LAGR_SCALAR)
@@ -894,7 +911,7 @@ contains
          R_wet(k) = dry(k)   !Initial guess
          T   = TEMP(SD_box(k)%i,SD_box(k)%j)
          Q   = RV  (SD_box(k)%i,SD_box(k)%j)
-         e   = Q/(Q + R_D/R_V)*interpol(Z_E,PR_E,X(k,2))
+         e   = Q/(Q + R_D/R_V)*interpol(Z_E,PR_E,X(k,2),linear_x=.true.)
          SAT = e/SVP(T,'L') - 1
          Rc  = sqrt(3*B/A)
          Sc  = A/Rc - B/(Rc**3)
@@ -1047,8 +1064,7 @@ contains
       use THERMODYNAMIC_VAR
       use STEPPER           , only: dt
       use ENVIRONMENT       , only: Z_E, PR_E
-      use ADVECTION         , only: stochastic_micro_phys, C_one, omega
-      use ENVIRONMENT       , only: Z_INV
+      use ADVECTION         , only: stochastic_micro_phys, C_one, omega, z_eps
       use SD_VARIABLES      , only: SD_box, R, kappa, N_sd, phase_change, Frozen, X
       use SD_VARIABLES      , only: Q_k, TH_k, im_freezing, C_gamma, R_dry
       use OMP_LIB
@@ -1058,7 +1074,7 @@ contains
       integer   :: k, m, n, count
       real*8, parameter  :: tol = 1.D-14
       real*8 :: error, next, F, F_prime, A
-      real*8 :: D, EX, P, T
+      real*8 :: D, EX, P, T, omega_local
       real*8 :: e_k, S_k, dq_k, dm_F, dTH_k ! Field localization parameters
       real*8 :: aw, Daw, Y, rd
 
@@ -1071,7 +1087,7 @@ contains
       do k = 1,N_sd
          !P = interpol(Z_E,PR_E,X(j,2)) !Pressure at the position of SD
          m  = SD_box(k)%i; n = SD_box(k)%j
-         P  = interpol(Z_E,PR_E,X(k,2))
+         P  = interpol(Z_E,PR_E,X(k,2),linear_x=.true.)
          EX = EXNER(P)
          
 
@@ -1084,17 +1100,14 @@ contains
             else
                dTH_k = (-LV0*dq_k + (LS0 - LV0)*dm_F )/(CP_D * EX)
             end if
-            !call SAMPLE_GAUSSIAN(psi,1.D0,0.D0)
 
-            if (X(k,2) < Z_INV) then
-               Q_k(k)  = Q_k (k) + (   RV(m,n) -  Q_k(k)) * (C_one*omega(n)*dt) + dq_k
-               TH_k(k) = TH_k(k) + (THETA(m,n) - TH_k(k)) * (C_one*omega(n)*dt) + dTH_k
-            else
-               Q_k(k)  =  Q_k(k) + dq_k
-               TH_k(k) = TH_k(k) + dTH_k
-            end if
+            
+            omega_local = interpol(z_eps, omega, X(k,2), linear_x=.true.)
+
+            Q_k(k)  = Q_k (k) + (   RV(m,n) -  Q_k(k)) * (C_one*omega_local*dt) + dq_k
+            TH_k(k) = TH_k(k) + (THETA(m,n) - TH_k(k)) * (C_one*omega_local*dt) + dTH_k
          else
-            !Conventional case: Homogeneous box with no fluctuation
+            !Conventional case: Homogeneous box with no fluctuations
             Q_k(k)  =    RV(m,n)
             TH_k(k) = THETA(m,n)
          end if
@@ -1153,9 +1166,9 @@ contains
 
    function B_COEFF(grad, k) result(b)
       use CIC_ROUTINES
-      use ADVECTION   , only: C_one, omega
+      use ADVECTION   , only: C_one, omega, z_eps
       use FUNCTIONS   , only: interpol
-      use SD_VARIABLES, only: SD_box, X
+      use SD_VARIABLES, only: X
 
       integer   :: i, j
       integer  , parameter  :: eye(2,2) = reshape([1,0,0,1],shape(eye))
@@ -1175,8 +1188,7 @@ contains
       end do
 
       ! Adding the C1*w*I term
-      j = SD_box(k)%j
-      omega_local = interpol(Z_nodes(j:j+1), omega(j:j+1), X(k,2))
+      omega_local = interpol(z_eps, omega, X(k,2), linear_x=.true.)
       b(:,:)      = b(:,:) - C_one * omega_local * eye(:,:)
    end function
 
@@ -1217,7 +1229,7 @@ contains
    subroutine UPDATE_U_PRIME
       use CIC_ROUTINES
       use FUNCTIONS
-      use ADVECTION, only: UXN, UZN, C_zero, eps, stochastic_micro_phys
+      use ADVECTION, only: UXN, UZN, C_zero, z_eps, eps, stochastic_micro_phys
       use STEPPER  , only: DT_ADV
       use SD_VARIABLES, only: u_prime, u_prime_old, X, XP, N_sd
       !Debugging
@@ -1287,7 +1299,7 @@ contains
          b = B_COEFF(grad, k)
          
          !Obtain c = C_zero*eps at particle position
-         eps_local = interpol(Z_nodes,eps,X(k,2))
+         eps_local = interpol(z_eps,eps,X(k,2), linear_x=.true.)
          c = C_zero*eps_local
          
          !Get random number with standard gaussian distribution
@@ -1924,7 +1936,7 @@ contains
       !$OMP do
       do i = 1,NXP
          do k = 1,NZP
-            PSI_now(i,k) = interpol(TIME_ADV,[PSIP(i,k), PSI(i,k)],TIME)
+            PSI_now(i,k) = interpol(TIME_ADV,[PSIP(i,k), PSI(i,k)],TIME, linear_x=.true.)
          end do
       end do
       !$OMP end do

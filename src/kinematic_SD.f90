@@ -250,7 +250,7 @@ SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
    IMPLICIT NONE
 
    REAL*8  :: EE
-   REAL*8  :: S, P
+   REAL*8  :: S
    real*8, allocatable :: z_table(:),theta_table(:),rv_table(:)
    real*8, allocatable :: Z(:)
    integer :: K
@@ -264,8 +264,8 @@ SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
    Z = linspace(0.5*DZ, LZ-0.5*DZ, NZ)
 
    ALLOCATE ( TH_E(NZ), RV_E(NZ) )
-   TH_E = interpol(z_table,theta_table,Z)
-   RV_E = interpol(z_table,rv_table,Z)
+   TH_E = interpol(z_table,theta_table,Z,linear_x = .false.)
+   RV_E = interpol(z_table,rv_table,Z, linear_x = .false.)
 
    CALL GET_ENV_PRESSURE_TEMP
 
@@ -287,10 +287,8 @@ SUBROUTINE GET_ENVIRONMENT_PROFILES_DYCOMS_II
    !from environmental pressure profile
    if (.not.allocated(Exn)) allocate(Exn(NZ))
    do k = 1,NZ
-      P      = interpol(Z_E,PR_E,(k - 0.5D0)*DZ)
-      Exn(k) = EXNER(P)
+      Exn(k) = EXNER(PR_E(k))
    end do
-
    ! Building the eddy diffusivity profile
    allocate(EDDY_DIFF(NZ))
    TT        = DZ !Transition thickness across inversion level

@@ -1493,7 +1493,8 @@ contains
 
       !Updating potential temperature and vapor mixing ratio
       do j = 1,NZ
-         THETA(:,j) = THETA(:,j) + (LV0*DELTA_L(:,j) + LS0*DELTA_I(:,j) + DELTA_F(:,j)*(LS0 - LV0)) / (CP_D*Exn(j)) + FTH_TURB_DT(:,j)
+         THETA(:,j) = THETA(:,j) + (LV0*DELTA_L(:,j) + LS0*DELTA_I(:,j) + DELTA_F(:,j)*(LS0 - LV0)) / (CP_D*Exn(j)) &
+                    + FTH_TURB_DT(:,j)
          TEMP (:,j)  = Exn(j)*THETA(:,j)
       end do
       RV(:,:) = RV(:,:) - DELTA_L(:,:) - DELTA_I(:,:) + FRV_TURB_DT(:,:)

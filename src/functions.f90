@@ -838,7 +838,7 @@ contains
    end subroutine WHICH_BOX
 
    subroutine UPDATE_PARTICLE_BOX_MAP
-      use SD_VARIABLES     , only: SD_box, DPB_input, N_sd, xi
+      use SD_VARIABLES     , only: SD_box, DPB_input, N_sd, xi, X
       use THERMODYNAMIC_VAR, only: DPB, N_DROPS_BOX
       use GRID, only: NX, NZ, boxes
       
@@ -865,6 +865,15 @@ contains
          call WHICH_BOX(k)
          i = SD_box(k)%i
          j = SD_box(k)%j
+         !Debugging only
+         if (i < 0 .or. i > NX .or. j < 0 .or. j > NZ) then
+            print*, 'Fatal error: particle out of bounds'
+            print*, 'Particle index: ', k
+            print*, 'Particle position: ', X(k,:)
+            print*, 'Box indeces:', i, j
+            stop 
+         end if
+         !Debugging only ^^^
          DPB(i,j) = DPB(i,j) + 1
          N_DROPS_BOX(i,j) = N_DROPS_BOX(i,j) + xi(k)
 
@@ -1582,11 +1591,11 @@ contains
       end do
       !$OMP end parallel do
 
-      DELTA_I = DELTA_I * RHO_LIQ*(4.D0/3*pi)
-      DELTA_L = DELTA_L * RHO_LIQ*(4.D0/3*pi)
-      DELTA_F = DELTA_F * RHO_LIQ*(4.D0/3*pi)
-      RI      = RI      * RHO_LIQ*(4.D0/3*pi)
-      RL      = RL      * RHO_LIQ*(4.D0/3*pi)
+      DELTA_I(:,:) = DELTA_I(:,:) * RHO_LIQ*(4.D0/3*pi)
+      DELTA_L(:,:) = DELTA_L(:,:) * RHO_LIQ*(4.D0/3*pi)
+      DELTA_F(:,:) = DELTA_F(:,:) * RHO_LIQ*(4.D0/3*pi)
+      RI(:,:)      = RI(:,:)      * RHO_LIQ*(4.D0/3*pi)
+      RL(:,:)      = RL(:,:)      * RHO_LIQ*(4.D0/3*pi)
 
       
       !Obtain turbulent fluxes
@@ -1594,13 +1603,13 @@ contains
          call GET_TURB_FLUXES_CIC(u_prime, Q_k, FRV_TURB_DT)
          call GET_TURB_FLUXES_CIC(u_prime, TH_k, FTH_TURB_DT) 
       end if
-      
+
       !Updating potential temperature and vapor mixing ratio
       do j = 1,NZ
-         THETA(:,j) = THETA(:,j) + (LV0*DELTA_L(:,j) + LS0*DELTA_I(:,j) + DELTA_F(:,j)*(LS0 - LV0))/CP_D/Exn(j) 
+         THETA(:,j) = THETA(:,j) + (LV0*DELTA_L(:,j) + LS0*DELTA_I(:,j) + DELTA_F(:,j)*(LS0 - LV0)) / (CP_D*Exn(j)) + FTH_TURB_DT(:,j)
          TEMP (:,j)  = Exn(j)*THETA(:,j)
       end do
-      RV    = RV - DELTA_L - DELTA_I + FRV_TURB_DT
+      RV(:,:) = RV(:,:) - DELTA_L(:,:) - DELTA_I(:,:) + FRV_TURB_DT(:,:)
 
    end subroutine UPDATE_BOXES
 
@@ -1621,7 +1630,7 @@ contains
       SAT = e/SVP(TEMP,'L') - 1
    end subroutine SAT_FIELD
 
-   subroutine GET_SCALAR_FORCES_TURB(FTH_TURB_DT,FRV_TURB_DT)
+   subroutine GET_SCALAR_FORCES_TURB(FTH_TURB_DT, FRV_TURB_DT)
 
       !Get the "forces" (i.e., the RHS of THE Eulerian (scalar) advection
       !equations) accounting for turbulent fluxes
@@ -2030,22 +2039,21 @@ contains
       real*8, intent(in) :: z, z_inv, DZ
       real*8             :: gamma
 
-      gamma = 0.5 - 0.5 * erf( (z - z_inv) / (sqrt(2.D0)*DZ) )
+      gamma = 0.5 - 0.5 * erf( (z - z_inv) / (DZ) )
 
    end function
 
    subroutine INIT_SG_PARAMETERS
       use ADVECTION    , only: z_eps, eps, omega, L
-      use GRID         , only: NZP, DZ
+      use GRID         , only: NZP
       use IO_PARAMETERS, only: eps_file_name
-      use ENVIRONMENT  , only: Z_INV
       use STEPPER      , only: DT_ADV
 
       integer           :: i
       integer           :: eof               !End-of-file indicator
       real*8            :: z_read, eps_read  !Values read form file
       real*8, parameter :: C = 1.D0          !Proportionality constant in k ~ (eps*L)^(2/3)
-      real*8            :: omega_laminar, gamma
+      real*8            :: omega_laminar, gamma, eps_transition
 
       !Read eps from data file
       allocate(z_eps(0), eps(0))
@@ -2065,13 +2073,15 @@ contains
          stop
       end if
 
-      !Calculate omega for each height (lookup table)
+      !Calculate omega as a function of eps (lookup table)
       allocate(omega(size(eps)))
       omega_laminar = 1 / DT_ADV
+      eps_transition = 0.05 * maxval(eps)
       do i = 1,size(omega)
-         gamma = INTERMITTENCY_FACTOR(z_eps(i), Z_INV, DZ)
+         gamma = INTERMITTENCY_FACTOR(eps(i), eps_transition, -eps_transition/2)
          omega(i) = (1/C)*(eps(i)/L**2)**(1.D0/3) * gamma + (1 - gamma) * omega_laminar
       end do
+
    end subroutine INIT_SG_PARAMETERS
 end module ADV_FUNCTIONS
 
